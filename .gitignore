@@ -1,0 +1,29 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Node (not used — this bundle has no TypeScript plugin — but ignore defensively)
+node_modules/
+
+# Environment / secrets — Stride API token lives here, NEVER commit
+.env
+.env.local
+.stride_auth.md
+
+# Stride orchestrator runtime state
+.stride/
+.stride-env-cache
+.stride-changed-files.json

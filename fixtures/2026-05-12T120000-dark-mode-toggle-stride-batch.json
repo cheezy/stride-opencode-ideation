@@ -1,0 +1,117 @@
+{
+  "source_spec": "fixtures/2026-05-12T120000-dark-mode-toggle-requirements.md",
+  "source_spec_sha256": "d34c559d08931f1ff1e60fcb6205def5fa6e5cc7a771bccf1885aa9813a40674",
+  "decomposition_notes": "Single-goal shape. All work is in the UI layer (token migration, toggle component, preference persistence, FOUC prevention). Tasks are ordered by code-coupling: tokens must land before the toggle component can reference them, and persistence must land before the FOUC script can read it. No cross-goal coordination required.",
+  "goals": [
+    {
+      "title": "Add a dark mode toggle to the app header",
+      "type": "goal",
+      "complexity": "medium",
+      "priority": "medium",
+      "needs_review": false,
+      "why": "Users running the app at night report eye strain; designers cannot share dark-mode mockups confidently because the current UI has no token system.",
+      "what": "Migrate hardcoded colors to daisyUI semantic tokens, add a header toggle that flips the data-theme attribute, persist the user's preference, and prevent first-paint flicker.",
+      "where_context": "lib/app_web/components/, lib/app_web/live/header_live.ex, assets/css/app.css",
+      "description": "v1 dark mode is a single binary toggle in the header that flips the entire interface to a low-light palette without a page reload, persisting the choice across sessions.",
+      "acceptance_criteria": "Toggle in the header flips the entire app to dark mode\nPreference persists across sessions\nNo flash of unstyled content (FOUC) on first paint\nAll 14 known routes render correctly in dark mode",
+      "pitfalls": [
+        "Do not introduce a new theming JS library",
+        "Do not break the existing data-theme attribute pattern"
+      ],
+      "tasks": [
+        {
+          "title": "Migrate hardcoded colors in core_components to daisyUI semantic tokens",
+          "type": "work",
+          "complexity": "small",
+          "priority": "medium",
+          "needs_review": false,
+          "description": "Replace bg-white, text-gray-900, border-gray-200, etc. with bg-base-100, text-base-content, border-base-300 in lib/app_web/components/core_components.ex so dark mode can swap palettes by flipping data-theme alone.",
+          "acceptance_criteria": "All hardcoded Tailwind colors in core_components.ex replaced with daisyUI semantic tokens\nLight-mode rendering unchanged on the 14 known routes\nGrep for hardcoded Tailwind color classes returns zero hits in core_components",
+          "patterns_to_follow": "Use daisyUI semantic tokens listed in app.css (bg-base-100, text-base-content, border-base-300, etc.)\nDo not introduce hex colors or arbitrary Tailwind values",
+          "pitfalls": ["Do not change component prop names or behavior — color migration only"],
+          "dependencies": [],
+          "key_files": [
+            {"file_path": "lib/app_web/components/core_components.ex", "note": "Color migration target", "position": 0}
+          ],
+          "verification_steps": [
+            {"step_type": "command", "step_text": "grep -E 'bg-white|text-gray-[0-9]|border-gray-[0-9]' lib/app_web/components/core_components.ex", "expected_result": "no matches", "position": 0}
+          ]
+        },
+        {
+          "title": "Migrate hardcoded colors in delayed_modal to daisyUI semantic tokens",
+          "type": "work",
+          "complexity": "small",
+          "priority": "medium",
+          "needs_review": false,
+          "description": "Same migration as the previous task, applied to lib/app_web/components/delayed_modal.ex. Necessary so modal overlays match the rest of the UI when the theme flips.",
+          "acceptance_criteria": "All hardcoded Tailwind colors in delayed_modal.ex replaced with daisyUI tokens\nModal overlay backdrop uses bg-base-200/90 not bg-black/50\nLight-mode modal rendering visually unchanged",
+          "patterns_to_follow": "Mirror the token choices used in core_components.ex",
+          "pitfalls": ["Do not touch modal interaction logic — color migration only"],
+          "dependencies": [0],
+          "key_files": [
+            {"file_path": "lib/app_web/components/delayed_modal.ex", "note": "Modal-overlay color migration", "position": 0}
+          ],
+          "verification_steps": [
+            {"step_type": "manual", "step_text": "Open a modal in light mode and confirm visual rendering unchanged from baseline", "expected_result": "No visual regression", "position": 0}
+          ]
+        },
+        {
+          "title": "Add user_preferences.theme column for dark mode persistence",
+          "type": "work",
+          "complexity": "small",
+          "priority": "medium",
+          "needs_review": false,
+          "description": "Add a string column theme to user_preferences (or create the table if absent) with values 'light' or 'dark'. Default 'light'. Adds the storage that the LiveView toggle will write to and the FOUC script will read from.",
+          "acceptance_criteria": "Migration creates or extends user_preferences with a theme string column\nDefault value is 'light'\nUser schema exposes the new field via the existing changeset",
+          "patterns_to_follow": "Mirror the existing migration style under priv/repo/migrations/\nUse a string column with a check constraint, not an enum (daisyUI grows palettes; check constraint can widen)",
+          "pitfalls": ["Do not migrate existing rows — let them fall back to the default"],
+          "dependencies": [],
+          "key_files": [
+            {"file_path": "priv/repo/migrations/", "note": "New migration file", "position": 0},
+            {"file_path": "lib/app/accounts/user.ex", "note": "Expose theme through the changeset", "position": 1}
+          ],
+          "verification_steps": [
+            {"step_type": "command", "step_text": "mix ecto.migrate", "expected_result": "migration runs successfully", "position": 0}
+          ]
+        },
+        {
+          "title": "Add theme_toggle LiveView component and wire it into the header",
+          "type": "work",
+          "complexity": "small",
+          "priority": "medium",
+          "needs_review": false,
+          "description": "Add a small LiveView component that renders a sun/moon icon button. Clicking it sends a phx-click event that updates the user's preference and pushes the data-theme attribute change to the DOM via a JS hook.",
+          "acceptance_criteria": "Component renders in the app header\nClick toggles between light/dark in under 50ms\nUser preference column updates atomically with the visual change\nKeyboard accessible (Enter/Space activate)",
+          "patterns_to_follow": "Use the existing core_components button + icon idioms\nUpdate the preference through MyApp.Accounts, not Repo directly",
+          "pitfalls": ["Do not flash the wrong-theme paint on toggle — push the attribute change before the LiveView re-renders"],
+          "dependencies": [0, 2],
+          "key_files": [
+            {"file_path": "lib/app_web/components/theme_toggle.ex", "note": "New component", "position": 0},
+            {"file_path": "lib/app_web/components/layouts/root.html.heex", "note": "Wire into header", "position": 1}
+          ],
+          "verification_steps": [
+            {"step_type": "manual", "step_text": "Click the toggle in both modes; observe no FOUC and the preference persists across reloads", "expected_result": "Smooth transition, persistent state", "position": 0}
+          ]
+        },
+        {
+          "title": "Add FOUC-prevention script to read the theme preference before CSS loads",
+          "type": "work",
+          "complexity": "small",
+          "priority": "medium",
+          "needs_review": false,
+          "description": "Add a tiny inline script at the top of the head that reads the theme preference (from cookie for guests, from data attribute on body for logged-in users injected server-side) and sets data-theme on the html element before stylesheets load. Eliminates the wrong-theme flash on first paint.",
+          "acceptance_criteria": "Inline script runs before <link rel=\"stylesheet\"> tags\nNo visible wrong-theme flash on first paint in dark mode\nScript is <500 bytes inline so it doesn't bloat the document head",
+          "patterns_to_follow": "Server-side renders the user's preference into a data attribute on body when authenticated\nFalls back to a cookie for guests so toggle works pre-login too",
+          "pitfalls": ["Do not load external JS for this — it MUST be inline to beat the FOUC window"],
+          "dependencies": [2, 3],
+          "key_files": [
+            {"file_path": "lib/app_web/components/layouts/root.html.heex", "note": "Inline script + body data attribute", "position": 0}
+          ],
+          "verification_steps": [
+            {"step_type": "manual", "step_text": "Hard-reload in dark mode and watch for a flash — there must be none", "expected_result": "No flash", "position": 0}
+          ]
+        }
+      ]
+    }
+  ]
+}

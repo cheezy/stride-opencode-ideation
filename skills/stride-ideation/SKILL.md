@@ -76,6 +76,48 @@ The default-focus column is identical across all four profiles — only the augm
 
 Each batched question SHOULD include illustrative scaffolding when the option set benefits from visual comparison (e.g., proposed scope boundaries, alternative success-metric framings) — render the comparison inline in the prompt (e.g., as fenced ASCII blocks or short tables) since OpenCode has no first-class "preview pane" tool. Plain-text choices need no inline scaffolding. Keep each round to at most four related questions.
 
+## Round recap
+
+**Mandatory.** Before every round — including round 1 (all sections empty) and every gap-fill round — the skill prints a compact recap of the seven hard-gated sections with a per-section status, plus a one-line note of which sections the upcoming round targets. The recap exists to orient the user inside an otherwise open-ended interrogation and to show visible progress toward a finished doc, reducing fatigue across the four-to-six round loop.
+
+The recap is **display-only narration rendered through OpenCode's normal output** — plain markdown text, not a question. It is NEVER an extra question round, and it MUST NOT change the gate, the round order, or the per-round question budget. It is printed immediately before the round's batched questions, then the round proceeds normally.
+
+Each of the seven sections gets exactly one of three statuses:
+
+- **empty** — no content captured yet.
+- **thin** — some content exists but it does not yet satisfy the gate (a placeholder, a single-line gesture, or — for Assumptions and Success Metrics — content that is present but still missing its shape requirement, e.g. unranked Assumptions or all-lagging Success Metrics).
+- **solid** — substantive content that satisfies the gate, including any shape requirement.
+
+The recap lists **only the seven hard-gated sections, always in their canonical order** (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics). It MUST NOT surface optional or profile-exclusive sections (Concrete Example, MVP / Validation experiment, Sketch, Open Questions) — those are not completeness gates, and listing a profile-locked section under the wrong profile would mislead. Because the seven gate names are identical across all four profiles, the recap rows are emitted unconditionally and identically under `lean`, `product`, `discovery`, and `lean-startup`.
+
+Example phrasing (a round-1 recap, everything still empty):
+
+> **Progress so far** (round 1 of ~4):
+> — **Goal:** empty
+> — **Problem:** empty
+> — **Outcome:** empty
+> — **Assumptions:** empty
+> — **Constraints:** empty
+> — **Non-goals:** empty
+> — **Success Metrics:** empty
+>
+> **This round targets:** Goal, Problem, Outcome.
+
+Example phrasing (a later gap-fill recap, mixed status):
+
+> **Progress so far** (round 6):
+> — **Goal:** solid
+> — **Problem:** solid
+> — **Outcome:** solid
+> — **Assumptions:** thin (not yet ranked)
+> — **Constraints:** solid
+> — **Non-goals:** solid
+> — **Success Metrics:** thin (leading indicator only)
+>
+> **This round targets:** Assumptions, Success Metrics.
+
+On a `--continue` session the round-1 recap reflects whatever the prior document already supplies — sections that arrive substantive start at **solid** rather than **empty**. The recap never lowers the gate or skips a round on the strength of an inherited status; it only reports it.
+
 ## Round-3 framing checkpoint
 
 **Mandatory.** Before continuing past round 3 the skill summarizes the current draft state back to the user and asks the framing question explicitly. Example phrasing:

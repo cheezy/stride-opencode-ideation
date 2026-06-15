@@ -18,11 +18,12 @@ Follow these steps in order. Do NOT skip steps.
 
 ### Step 1: Parse `$ARGUMENTS`
 
-The user invoked you with `$ARGUMENTS`. Parse in this fixed order — `--goal` first, then the trimmed remainder is `REQUIREMENTS_PATH`:
+The user invoked you with `$ARGUMENTS`. Parse in this fixed order — `--goal` first, then `--yes` / `--auto-approve`, then the trimmed remainder is `REQUIREMENTS_PATH`:
 
 - If `--goal` appears, set `GOAL_ARG` to the value of the **next** token and remove both tokens — or, if the `--goal=<value>` form is used, set `GOAL_ARG` to the post-`=` portion (split on the FIRST `=` only, so a value containing `=` is preserved verbatim) and remove the single token. Accept both shapes — `--goal <value>` and `--goal=<value>` — matching how `/ideate` handles `--continue` and `--profile`. Do NOT validate `GOAL_ARG` here; resolution against the doc's `## Decomposition seams` section happens in new Step 2b, after the doc has been read and the seven-section gate has passed.
 - If `--goal` is absent, leave `GOAL_ARG` and `GOAL_SLUG` unset. The command runs in its historical "all goals" mode.
-- After flag tokens are consumed, trim the remainder and set `REQUIREMENTS_PATH`. If the remainder is empty, print *"Usage: `/stridify <path-to-requirements.md> [--goal <name|index>]`"* and exit non-zero.
+- If `--yes` **or** `--auto-approve` appears as a bare token, set `AUTO_APPROVE=true` and remove that token. This is a **boolean flag — it takes no value**, so there is no `--yes=<value>` form; treat any token equal to `--yes` or `--auto-approve` as the switch and consume it. The flag bypasses the Step 8.5 preview-and-approval gate, preserving the historical fire-and-forget behavior for scripted / non-interactive callers. If neither token appears, leave `AUTO_APPROVE` unset (equivalently `false`); the command runs interactively and Step 8.5 prompts for approval before the POST. The bypass MUST be an explicit user-supplied flag — never infer it; tasks must never be shipped unreviewed by accident.
+- After flag tokens are consumed, trim the remainder and set `REQUIREMENTS_PATH`. If the remainder is empty, print *"Usage: `/stridify <path-to-requirements.md> [--goal <name|index>] [--yes]`"* and exit non-zero.
 
 ### Step 2: Validate the requirements doc
 
@@ -465,6 +466,55 @@ When `--goal` was set, the commit message gains the goal slug so the audit trail
 Use `git add <path>` (not `git add -A` or `git commit -a`) to avoid sweeping unrelated working-tree changes into this commit. The source requirements doc is NOT in the commit's file list — `/stridify` reads it but never modifies it.
 
 > **Drift check omitted.** The historical `/ship` command ran a `source_spec_sha256` drift check at this point to catch the case where the user hand-edited the requirements doc between `/decompose` and `/ship`. In the merged `/stridify` flow the batch JSON was just written by this command in the current invocation, so source drift cannot have occurred. The check is skipped.
+
+### Step 8.5: Preview the decomposed tree and gate on human approval
+
+The batch JSON is on disk and committed, but nothing has been sent to Stride yet. Before the Step 9 POST, show the human the goal/task tree that is about to be created and require explicit approval — unless `AUTO_APPROVE` was set in Step 1, in which case this entire step is skipped and control falls straight through to Step 9. This is the single point where a human can catch a bad decomposition before it lands in the workspace.
+
+**(8.5a) Render the tree from the on-disk batch JSON.** Read `$BATCH_PATH` (never the token-bearing environment) and print each goal title, its task count, its task titles, and the cross-goal claim order from `decomposition_notes`. The render reads only the on-disk JSON, which contains no auth material — do NOT enrich it from `$STRIDE_API_TOKEN` or any other secret, and never print the token. Reuse the Step 10 identifier-render style, adapted to the pre-POST on-disk shape (no identifiers exist yet — the Stride API assigns G/W identifiers on POST):
+
+```bash
+python3 - "$BATCH_PATH" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fp:
+    data = json.load(fp)
+
+goals = data.get("goals", [])
+notes = data.get("decomposition_notes", "")
+
+print()
+print("Goals and tasks to be created:")
+print()
+for goal in goals:
+    title = goal.get("title", "(no title)")
+    tasks = goal.get("tasks", []) or []
+    n = len(tasks)
+    print(f"  Goal: {title}  ({n} task{'s' if n != 1 else ''})")
+    for task in tasks:
+        print(f"    - {task.get('title', '(no title)')}")
+print()
+if notes:
+    print("Cross-goal claim order:")
+    print(f"  {notes}")
+    print()
+PY
+```
+
+**(8.5b) Bypass when `--yes` / `--auto-approve` was set.** If `AUTO_APPROVE` is `true`, the human opted out of the gate explicitly: skip the prompt entirely and proceed to Step 9. Do NOT prompt, do NOT block — scripted and non-interactive callers depend on this path staying byte-for-byte identical to the historical fire-and-forget flow. (The tree render in 8.5a is still printed so the log carries a record of what was shipped, but no interaction is required.)
+
+**(8.5c) Otherwise, require explicit approval.** When `AUTO_APPROVE` is unset, ask the human via OpenCode's question UI (the same prompt mechanism `/ideate` uses — NOT Claude Code's `AskUserQuestion`) whether to create these goals and tasks in Stride. Proceed to Step 9 **only** on an explicit approval.
+
+On **decline**, stop cleanly:
+
+```bash
+echo "stride-ideation: declined. The batch JSON is on disk at $BATCH_PATH" >&2
+echo "(committed in git) for a later manual ship. No POST was attempted." >&2
+exit 0
+```
+
+The decline path is a deliberate user choice, not a failure — exit `0`. **Do NOT delete or rewrite the on-disk batch JSON on decline**: it is the recovery artifact, already committed, and a future `/stridify` re-run or a hand-curl per Step 9 can ship it unchanged. The token is never printed in the preview or the gate output, and no POST is attempted before approval.
 
 ### Step 9: Strip local-audit fields, POST, and branch on HTTP status
 

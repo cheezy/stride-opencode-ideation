@@ -59,6 +59,8 @@ The four profiles:
 
 The default `lean` profile is the safe choice when nothing else applies. The profile is locked at command invocation time and does not change mid-session.
 
+**Profile recommendation (command surface).** When `/ideate` is invoked **without** an explicit `--profile`, the command recommends a profile before the rounds begin — a single question (via OpenCode's question UI) presenting a best-guess profile first (labeled `(recommended)` with a one-line rationale) and the other three as alternatives, defaulting to `lean` — and passes the resolved choice to this skill as `profile=`. When `--profile` is supplied explicitly, no recommendation runs and the unknown-value fast-fail is unchanged. Either way this skill receives one already-resolved profile; the recommendation is a command-surface concern that does not change any per-profile behavior defined above, and a resolved `lean` is byte-for-byte identical to passing `--profile=lean`. See Step 1 of `commands/ideate.md`.
+
 ## The questioning loop
 
 A **round** is one batched set of one to four related questions posed to the user. Rounds proceed until each of the seven required sections has draft content; a typical session uses three to five rounds.

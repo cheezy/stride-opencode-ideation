@@ -122,6 +122,8 @@ Example phrasing (a later gap-fill recap, mixed status):
 
 On a `--continue` session the round-1 recap reflects whatever the prior document already supplies — sections that arrive substantive start at **solid** rather than **empty**. The recap never lowers the gate or skips a round on the strength of an inherited status; it only reports it.
 
+When the command threads `input_notes` (the `--input` brain-dump seed, analogous to `prior_doc` but raw rather than a committed requirements doc), the skill pre-populates draft sections wherever the notes clearly map to a gated section and the round-1 recap reflects that seeding — but a seeded section starts at **thin**, not **solid**, because unconfirmed brain-dump content has not yet been verified section-by-section with the human. The seed lowers the starting cost, never the bar: every hard gate, the round-3 framing checkpoint, the premortem, and the reviewer pass still run, and the rounds focus on the gaps the notes did not cover. `input_notes` and `prior_doc` are independent and may both be present in one session.
+
 ## Uncertainty path
 
 **Mandatory on every gated-section question and every forcing question.** Alongside the real answer choices, every question whose answer feeds a gated section or a profile-specific forcing question MUST offer a first-class choice that means **"I'm not sure — propose candidates for me,"** presented through OpenCode's own question UI (not Claude Code's `AskUserQuestion`). The most valuable moments in ideation are exactly when the user is uncertain; without this escape hatch a forced pick leaves them only two bad choices — bail, or enter a low-quality answer. The choice turns the skill into a thinking partner instead of an interrogator.

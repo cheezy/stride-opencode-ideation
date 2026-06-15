@@ -97,6 +97,7 @@ The skill enforces:
 - the hard gate against premature implementation,
 - the round-based question loop (≤ 4 questions per round) — each round asks the user a batched set of up to four related questions,
 - the display-only round recap printed before every round (see **Round recap** in `skills/stride-ideation/SKILL.md`) — it reports per-section solid/thin/empty status and the round's target sections without changing the gate, the round order, or the question budget,
+- the "I'm not sure — propose candidates" uncertainty path offered on every batched question — gated-section and profile-specific forcing questions alike (see **Uncertainty path** in `skills/stride-ideation/SKILL.md`); it proposes 2–4 topic-tailored candidates but can never satisfy the hard gate without human confirmation,
 - the mandatory round-3 framing checkpoint,
 - the mandatory round-4 premortem,
 - the seven hard-gated sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics),

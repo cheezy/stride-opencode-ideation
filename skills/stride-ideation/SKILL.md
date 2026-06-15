@@ -76,6 +76,8 @@ The default-focus column is identical across all four profiles — only the augm
 
 Each batched question SHOULD include illustrative scaffolding when the option set benefits from visual comparison (e.g., proposed scope boundaries, alternative success-metric framings) — render the comparison inline in the prompt (e.g., as fenced ASCII blocks or short tables) since OpenCode has no first-class "preview pane" tool. Plain-text choices need no inline scaffolding. Keep each round to at most four related questions.
 
+Every gated-section question and every profile-specific forcing question (JTBD, Why-now, MVP design) MUST also carry the uncertainty-path option described in **Uncertainty path** below, so a stuck user always has a supported way to ask for help instead of bailing or entering a low-quality answer.
+
 ## Round recap
 
 **Mandatory.** Before every round — including round 1 (all sections empty) and every gap-fill round — the skill prints a compact recap of the seven hard-gated sections with a per-section status, plus a one-line note of which sections the upcoming round targets. The recap exists to orient the user inside an otherwise open-ended interrogation and to show visible progress toward a finished doc, reducing fatigue across the four-to-six round loop.
@@ -117,6 +119,25 @@ Example phrasing (a later gap-fill recap, mixed status):
 > **This round targets:** Assumptions, Success Metrics.
 
 On a `--continue` session the round-1 recap reflects whatever the prior document already supplies — sections that arrive substantive start at **solid** rather than **empty**. The recap never lowers the gate or skips a round on the strength of an inherited status; it only reports it.
+
+## Uncertainty path
+
+**Mandatory on every gated-section question and every forcing question.** Alongside the real answer choices, every question whose answer feeds a gated section or a profile-specific forcing question MUST offer a first-class choice that means **"I'm not sure — propose candidates for me,"** presented through OpenCode's own question UI (not Claude Code's `AskUserQuestion`). The most valuable moments in ideation are exactly when the user is uncertain; without this escape hatch a forced pick leaves them only two bad choices — bail, or enter a low-quality answer. The choice turns the skill into a thinking partner instead of an interrogator.
+
+Keep the option phrasing **identical across all rounds** (the literal label *"I'm not sure — propose candidates"*) so the user learns it once and recognizes it everywhere. It is a choice *within* a question, not a new question — adding it NEVER increases the round's question count and MUST NOT push a round over the per-round question budget.
+
+When the user picks it, the skill flips into **teaching mode** for that one section:
+
+1. Propose **2–4 concrete candidate answers** for the section, each derived from the **session's actual topic and the content gathered so far** — never generic boilerplate. A candidate for a notifications-digest project must read like it belongs to that project.
+2. Give **each candidate a one-line rationale** explaining why it might fit, so the user is choosing between reasoned options rather than guessing.
+3. Let the user **pick one, edit one, or reject all and ask for a fresh batch.** If they reject all, propose a new batch rather than looping on the same candidates or giving up.
+
+**Hard rule — the uncertainty path can NEVER auto-satisfy the gate.** A proposed candidate is the skill's suggestion, not the user's answer. It counts as **substantive content** (see **Hard gate**) only after the user explicitly selects or edits one to confirm it. Just as "just write what we have" cannot skip the gate, the skill's own candidates cannot fill a section on the user's behalf — it proposes, the human decides, and the section stays **empty**/**thin** in the round recap until a human-confirmed answer lands. Repeated picks of the uncertainty path keep proposing; they never silently fill the section to make the loop terminate.
+
+Example phrasing (the choice as it appears inside a Success Metrics question):
+
+> "How will you know this worked? Pick a framing, or:
+> — **I'm not sure — propose candidates** — I'll suggest 2–4 metric framings drawn from your Goal and Outcome, each with a one-line rationale, and you choose or edit one."
 
 ## Round-3 framing checkpoint
 

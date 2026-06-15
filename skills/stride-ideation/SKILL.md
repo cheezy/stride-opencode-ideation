@@ -199,7 +199,11 @@ The user's answers are folded into the optional **MVP / Validation experiment** 
 
 After all seven sections have draft content, and before the document is written to disk, the skill auto-dispatches the `requirements-reviewer` subagent (see `agents/requirements-reviewer.md`). The reviewer's output is **advisory** — it surfaces gaps, unstated assumptions, internal contradictions, and ambiguous acceptance criteria.
 
-If the reviewer reports substantive findings, the skill runs **at most one** refinement round to address them, then writes the document regardless of whether the reviewer is fully satisfied. Reviewer findings never block the write indefinitely; perfect is the enemy of shipped.
+**The findings are the human's decision, not the skill's.** When the reviewer returns `verdict: "issues_found"`, the skill presents the findings to the human via a single **multi-select** question through OpenCode's own question UI (not Claude Code's `AskUserQuestion`) — one option per finding, each a single line tagged with its `severity` (`blocking` / `advisory`) and naming its `section`. The option set MUST include an explicit **"Address none — write as-is"** choice so the human can ship the document untouched. The human selects which findings to address; the skill then runs **at most one** refinement round covering exactly the selected findings (selecting nothing, or only the write-as-is option, skips the refinement round entirely) and writes the document afterward regardless of whether every finding was resolved. The decision obeys the same `≤ 4`-options ergonomics as the rest of the loop — if the reviewer returns more than a handful of findings, group or summarize them into the option set, but never spawn a second decision round.
+
+Two contracts are load-bearing and unchanged. (1) There is **at most one** refinement round: the human's selection feeds that single round; the skill never runs a second, no matter how many findings were selected. (2) The reviewer **never blocks the write** — findings are advisory input to a human decision, and "write as-is" is always available, so even `blocking`-severity findings cannot hold the document hostage. Perfect is the enemy of shipped.
+
+**When the reviewer returns `verdict: "approved"` (empty `issues`), show no decision prompt at all** — there is nothing to decide, so the skill proceeds straight to writing the document. Never display an empty decision question, or one whose only option is "write as-is".
 
 ## Optional auxiliary sections
 

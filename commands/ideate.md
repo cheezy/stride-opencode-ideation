@@ -136,7 +136,7 @@ The skill enforces:
 - the mandatory round-3 framing checkpoint,
 - the mandatory round-4 premortem,
 - the seven hard-gated sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics),
-- the advisory `requirements-reviewer` pass before the write (dispatch the requirements-reviewer custom agent).
+- the advisory `requirements-reviewer` pass before the write (dispatch the requirements-reviewer custom agent) — its findings are surfaced to the human as a single multi-select decision through OpenCode's question UI (each finding one line, severity-tagged, plus an explicit "Address none — write as-is" option) that feeds the at-most-one refinement round; an `approved` verdict with no findings shows no prompt, and the reviewer never blocks the write (see **Reviewer pass** in `skills/stride-ideation/SKILL.md`).
 
 When the skill returns, you will have a single string `DRAFT_DOC` containing the fully composed requirements markdown — every gated section present and substantive. If the skill returns without a draft (user aborted, hard gate not satisfied), stop here and exit cleanly — do NOT write anything to disk and do NOT commit.
 

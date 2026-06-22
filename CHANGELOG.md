@@ -5,6 +5,12 @@ All notable changes to the Stride Ideation extension for OpenCode are documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-06-22
+
+### Fixed
+
+- **The installer no longer overwrites an existing `AGENTS.md`.** Previously `install.sh` and `install.ps1` unconditionally copied the bundle `AGENTS.md` over the destination, silently destroying a user-authored `AGENTS.md` in project mode. The installer now confines its content to an idempotent, clearly delimited managed block (`<!-- BEGIN stride-ideation -->` … `<!-- END stride-ideation -->`): a fresh file is created with the block, an existing file keeps all of its content with the block appended or refreshed in place, and re-running the installer never duplicates the guidance. A malformed/orphaned marker (a `BEGIN` with no following `END`) appends rather than truncating, so user content is never lost. `install.sh` and `install.ps1` behave identically (verified byte-for-byte across fresh, existing, re-run, no-trailing-newline, and malformed-marker scenarios). The destination is only ever pattern-matched, never sourced or evaluated. README documents the behavior.
+
 ## [0.2.0] - 2026-06-17
 
 Human-interaction improvements ported from [`cheezy/stride-ideation`](https://github.com/cheezy/stride-ideation) (G235) — the lower-friction, higher-confidence ideation flow, adapted to OpenCode.

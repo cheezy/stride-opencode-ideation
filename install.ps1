@@ -76,7 +76,36 @@ try {
         New-Item -ItemType Directory -Force -Path $dest | Out-Null
         Copy-Item (Join-Path $Src $d '*') -Destination $dest -Recurse -Force
     }
-    Copy-Item (Join-Path $Src 'AGENTS.md') -Destination (Join-Path $RootDir 'AGENTS.md') -Force
+    # AGENTS.md orients the main agent. Preserve any existing user-authored file
+    # by confining our content to an idempotent, clearly delimited managed block:
+    # a fresh file gets the block; an existing file keeps ALL of its content and
+    # only the block is inserted or refreshed in place (never clobbered, never
+    # duplicated). Mirrors the install.sh logic exactly.
+    $DestAgents  = Join-Path $RootDir 'AGENTS.md'
+    $BeginMarker = '<!-- BEGIN stride-ideation -->'
+    $EndMarker   = '<!-- END stride-ideation -->'
+    $NoteMarker  = '<!-- Managed by the stride-opencode-ideation installer; content between these markers is regenerated on each install. Add your own notes outside this block. -->'
+    $Bundle      = (Get-Content -Raw (Join-Path $Src 'AGENTS.md')).TrimEnd("`r", "`n")
+    $Block       = $BeginMarker + "`n" + $NoteMarker + "`n" + $Bundle + "`n" + $EndMarker
+
+    if (-not (Test-Path $DestAgents)) {
+        Set-Content -Path $DestAgents -Value ($Block + "`n") -NoNewline
+    } else {
+        # Read as plain text; never evaluate or source the destination contents.
+        $Existing = Get-Content -Raw $DestAgents
+        $startIdx = $Existing.IndexOf($BeginMarker)
+        $endIdx   = $Existing.IndexOf($EndMarker)
+        if (($startIdx -ge 0) -and ($endIdx -ge $startIdx)) {
+            # Refresh the existing managed block in place (markers inclusive).
+            $before  = $Existing.Substring(0, $startIdx)
+            $after   = $Existing.Substring($endIdx + $EndMarker.Length)
+            Set-Content -Path $DestAgents -Value ($before + $Block + $after) -NoNewline
+        } else {
+            # Existing user file with no managed block: append, preserving content.
+            $sep = if ($Existing.EndsWith("`n")) { "`n" } else { "`n`n" }
+            Add-Content -Path $DestAgents -Value ($sep + $Block + "`n") -NoNewline
+        }
+    }
 } finally {
     if ($Cleanup) { Remove-Item -Recurse -Force $Cleanup }
 }

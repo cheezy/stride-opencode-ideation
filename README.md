@@ -49,6 +49,27 @@ On Windows, use the PowerShell installer:
 .\stride-opencode-ideation\install.ps1 -Global    # global
 ```
 
+#### Your existing `AGENTS.md` is preserved
+
+The installer never overwrites a user-authored `AGENTS.md`. Its guidance is
+confined to a clearly delimited **managed block**:
+
+```markdown
+<!-- BEGIN stride-ideation -->
+<!-- Managed by the stride-opencode-ideation installer; content between these markers is regenerated on each install. Add your own notes outside this block. -->
+...ideation guidance...
+<!-- END stride-ideation -->
+```
+
+- **No `AGENTS.md` yet** — the file is created containing the managed block.
+- **You already have an `AGENTS.md`** — all of your content is kept; the managed
+  block is appended (or, if already present, refreshed in place).
+- **Re-running the installer is idempotent** — it updates only the managed block
+  and never duplicates the guidance. Keep your own notes *outside* the markers;
+  anything between them is regenerated on each install.
+
+`install.sh` and `install.ps1` behave identically.
+
 ### Manual install
 
 ```bash

@@ -1,6 +1,6 @@
 ---
 name: stride-ideation
-description: Use when the user has a fuzzy idea, a new feature initiative, or a pre-decomposition scoping need and wants a written requirements document — drives a round-based question loop (up to 4 batched questions per round, with a mandatory round-3 framing checkpoint and a mandatory round-4 premortem; lean-startup additionally runs a mandatory round-5 MVP-design batch) under a named profile (lean / product / discovery / lean-startup), hard-gates the 7 required sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics) with shape requirements on Assumptions (ranked, riskiest marked, premortem-derived) and Success Metrics (both leading and lagging indicators), auto-dispatches an advisory requirements-reviewer pass with profile-aware checks, then commits a timestamped requirements doc and STOPS. The terminal state is the written document — the skill never pushes the user toward /stridify or any other next step.
+description: Use when the user has a fuzzy idea, a new feature initiative, or a pre-decomposition scoping need and wants a written requirements document — drives a round-based question loop (up to 4 batched questions per round, with a mandatory round-3 framing checkpoint, a mandatory round-4 premortem, and a mandatory challenge gate — assumption-confidence audit, blind-spot scan, two alternatives, trade-off analysis — that runs before the reviewer pass; lean-startup additionally runs a mandatory round-5 MVP-design batch) under a named profile (lean / product / discovery / lean-startup), hard-gates the 7 required sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics) with shape requirements on Assumptions (ranked, riskiest marked, premortem-derived) and Success Metrics (both leading and lagging indicators), auto-dispatches an advisory requirements-reviewer pass with profile-aware checks, then commits a timestamped requirements doc and STOPS. The terminal state is the written document — the skill never pushes the user toward /stridify or any other next step.
 skills_version: "1.0"
 ---
 
@@ -48,7 +48,7 @@ Additionally:
 
 ## Profiles
 
-The skill receives a `profile=<name>` parameter from the calling command. The profile selects which forcing questions run inside the rounds and which optional sections the document may include. The seven hard-gated section names and the round-3 framing checkpoint and round-4 premortem are **identical across all profiles** — the profile only adjusts what additional content the rounds elicit and what the advisory reviewer flags. Profiles do NOT overlap: each augmentation belongs to exactly one profile.
+The skill receives a `profile=<name>` parameter from the calling command. The profile selects which forcing questions run inside the rounds and which optional sections the document may include. The seven hard-gated section names and the round-3 framing checkpoint, the round-4 premortem, and the challenge gate are **identical across all profiles** — the profile only adjusts what additional content the rounds elicit and what the advisory reviewer flags. Profiles do NOT overlap: each augmentation belongs to exactly one profile.
 
 The four profiles:
 
@@ -72,9 +72,10 @@ A **round** is one batched set of one to four related questions posed to the use
 | 3 | Success Metrics + framing checkpoint (see below) | (none) |
 | 4 | Premortem — challenge Assumptions, fold failure modes back in (see below) | (none) |
 | 5 | MVP design — anchor on the `(R)`-marked Assumptions entry and design the smallest validating experiment (lean-startup only; see below) | `lean-startup`: runs the four-question MVP-design batch |
+| Challenge | Challenge gate — audit confidence in every assumption, scan blind spots, generate two alternatives, compare trade-offs (see below) | (none) |
 | 6+ | Gap-fill for whichever sections still lack substance | (none) |
 
-The default-focus column is identical across all four profiles — only the augmentation column and Round-5 attendance change. `profile=lean` runs the table with the augmentation column empty and Round 5 skipped (byte-for-byte v0.3.0). `profile=product` adds the Round-1 JTBD batch and skips Round 5. `profile=discovery` adds the Round-2 Why-now + Alternative-options batch and skips Round 5. `profile=lean-startup` runs the Round-5 MVP-design batch (mandatory under this profile; skipped under any other profile). Round 3 (framing) and Round 4 (premortem) are profile-independent and mandatory in all profiles.
+The default-focus column is identical across all four profiles — only the augmentation column and Round-5 attendance change. `profile=lean` runs the table with the augmentation column empty and Round 5 skipped (byte-for-byte v0.3.0). `profile=product` adds the Round-1 JTBD batch and skips Round 5. `profile=discovery` adds the Round-2 Why-now + Alternative-options batch and skips Round 5. `profile=lean-startup` runs the Round-5 MVP-design batch (mandatory under this profile; skipped under any other profile). Round 3 (framing), Round 4 (premortem), and the challenge gate are profile-independent and mandatory in all profiles.
 
 Each batched question SHOULD include illustrative scaffolding when the option set benefits from visual comparison (e.g., proposed scope boundaries, alternative success-metric framings) — render the comparison inline in the prompt (e.g., as fenced ASCII blocks or short tables) since OpenCode has no first-class "preview pane" tool. Plain-text choices need no inline scaffolding. Keep each round to at most four related questions.
 
@@ -92,7 +93,7 @@ Each of the seven sections gets exactly one of three statuses:
 - **thin** — some content exists but it does not yet satisfy the gate (a placeholder, a single-line gesture, or — for Assumptions and Success Metrics — content that is present but still missing its shape requirement, e.g. unranked Assumptions or all-lagging Success Metrics).
 - **solid** — substantive content that satisfies the gate, including any shape requirement.
 
-The recap lists **only the seven hard-gated sections, always in their canonical order** (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics). It MUST NOT surface optional or profile-exclusive sections (Concrete Example, MVP / Validation experiment, Sketch, Open Questions) — those are not completeness gates, and listing a profile-locked section under the wrong profile would mislead. Because the seven gate names are identical across all four profiles, the recap rows are emitted unconditionally and identically under `lean`, `product`, `discovery`, and `lean-startup`.
+The recap lists **only the seven hard-gated sections, always in their canonical order** (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics). It MUST NOT surface optional or profile-exclusive sections (Concrete Example, MVP / Validation experiment, Sketch, Open Questions, Design challenge) — those are not completeness gates, and listing a profile-locked section under the wrong profile would mislead. Because the seven gate names are identical across all four profiles, the recap rows are emitted unconditionally and identically under `lean`, `product`, `discovery`, and `lean-startup`.
 
 Example phrasing (a round-1 recap, everything still empty):
 
@@ -195,6 +196,34 @@ The user's answers are folded into the optional **MVP / Validation experiment** 
 
 **This round runs even on `--continue` mode** when `profile=lean-startup`. A prior requirements doc refined under `--continue --profile=lean-startup` may lack an MVP section entirely; the gap-fill use case is exactly when Round 5 catches it. Do NOT add a "skip on --continue" carve-out.
 
+## Challenge gate
+
+**Mandatory.** After the round-4 premortem has folded its failure modes into the Assumptions section — and, under `profile=lean-startup`, after the Round-5 MVP-design batch — and **before** the reviewer pass, the skill runs a challenge gate over the assembled draft. The premortem inverts the framing to surface the *single* most likely failure mode; the challenge gate is deliberately **broader**. It audits the confidence behind *every* assumption, scans for blind spots the premortem's single-failure-mode inversion never reaches, and forces a comparison against genuine alternatives. The premortem asks "what's the one thing most likely to go wrong?"; the challenge gate asks "what aren't we even looking at, how sure are we of each belief, and what else could we have built?" The two do not duplicate each other — the confidence audit and blind-spot scan are wider than the premortem's failure-mode inversion, and the gate runs over the premortem's output rather than repeating it.
+
+The gate has four components, run in order:
+
+- **(a) Assumption-confidence audit.** Enumerate every entry in the Assumptions section and rate confidence in each as **high**, **medium**, or **low**. This is a sweep across the whole list, not the premortem's single riskiest-failure-mode inversion.
+- **(b) Blind-spot scan.** Surface what the draft has not considered — unstated dependencies, omitted stakeholders, untested edge cases, and failure modes the premortem missed. The premortem captures one inverted failure mode; this scan looks wider, for the things no question in rounds 1–4 thought to ask.
+- **(c) Alternative generation.** Produce **two distinct alternative approaches** to the proposed design — not strawmen, but approaches a reasonable person might genuinely prefer.
+- **(d) Trade-off analysis.** Compare the proposed design against the two alternatives across **cost, risk, complexity, and timeline**, so the proposed design is chosen against real options rather than by default.
+
+Example phrasing:
+
+> "Before I hand this to the reviewer, let me challenge the design. I've rated confidence in each assumption, scanned for blind spots (unstated dependencies, omitted stakeholders, untested edge cases, failure modes the premortem missed), and sketched two alternative approaches with a cost / risk / complexity / timeline comparison. What would you like to act on?"
+>
+> *Options are multi-select: one per low-confidence assumption, one per material blind spot, one per alternative worth pursuing, plus an explicit **"Challenge nothing — write as-is"** option so the draft can proceed untouched.*
+
+**The gate is advisory and NEVER blocks the write.** Exactly like the reviewer pass, the findings are the human's decision, not the skill's. The option set MUST include an explicit **"Challenge nothing — write as-is"** choice so the human can proceed with the draft untouched. The human selects what to act on; the skill then runs **at most one** refinement round covering exactly the selected items (selecting nothing, or only the write-as-is option, skips the refinement round entirely) and continues to the reviewer pass regardless of whether every item was resolved. The challenge gate never holds the document hostage — proceed-as-is is always available. Perfect is the enemy of shipped.
+
+Outputs fold back into the document, mirroring the premortem fold-back:
+
+- The **confidence ratings annotate the Assumptions section in place** — each assumption gains its high/medium/low rating where it already sits, the same way the premortem's failure modes are folded into Assumptions rather than parked elsewhere. The audit never reorders the list or disturbs the `(R)` / `**(riskiest)**` marker the premortem set.
+- The **blind spots, the two alternatives, and the trade-off comparison fold into a new optional "Design challenge" section** (see "Optional auxiliary sections" below). That section is optional and ungated — it is NOT one of the seven hard-gated sections and is NOT added to the round recap.
+
+The gate is **profile-independent**: it runs identically under `lean`, `product`, `discovery`, and `lean-startup`, exactly like the round-3 framing checkpoint and the round-4 premortem. The profile changes nothing about its four components or its fold-back.
+
+**This gate runs even on `--continue` mode.** A requirements doc refined under `--continue` may never have been challenged; the gap-fill use case is exactly when the confidence audit and blind-spot scan catch what the original rounds missed. Do NOT add a "skip on --continue" carve-out.
+
 ## Reviewer pass
 
 After all seven sections have draft content, and before the document is written to disk, the skill auto-dispatches the `requirements-reviewer` subagent (see `agents/requirements-reviewer.md`). The reviewer's output is **advisory** — it surfaces gaps, unstated assumptions, internal contradictions, and ambiguous acceptance criteria.
@@ -211,6 +240,7 @@ The document MAY also contain:
 
 - **Sketch** — bullet-form solution shape, if the user produced one during ideation (all profiles)
 - **Open Questions** — items the user explicitly deferred (all profiles)
+- **Design challenge** — blind spots surfaced by the challenge gate (unstated dependencies, omitted stakeholders, untested edge cases, missed failure modes), the two distinct alternative approaches, and a cost / risk / complexity / timeline trade-off comparison against the proposed design (all profiles)
 - **Concrete Example** — a single named scenario with the user, the trigger, the current bad path, and the desired good path (**`profile=product` only**)
 - **MVP / Validation experiment** — the riskiest assumption being tested (quoted from Assumptions), experiment design, success criteria, failure criteria, time box, and pivot-or-persevere decision (**`profile=lean-startup` only**)
 

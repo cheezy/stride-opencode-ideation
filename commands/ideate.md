@@ -136,6 +136,7 @@ The skill enforces:
 - the mandatory round-3 framing checkpoint,
 - the mandatory round-4 premortem,
 - the seven hard-gated sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics),
+- the mandatory, profile-independent challenge gate run after the round-4 premortem (and the Round-5 MVP-design batch under `profile=lean-startup`) and before the reviewer pass — its four components (assumption-confidence audit, blind-spot scan, two-alternative generation, and cost/risk/complexity/timeline trade-off analysis) are surfaced to the human as a single multi-select decision through OpenCode's question UI (≤ 4 questions; not Claude Code's `AskUserQuestion`) with an explicit "Challenge nothing — write as-is" option that feeds the at-most-one refinement round; the confidence ratings fold back into the Assumptions entries in place and the blind spots, two alternatives, and trade-off comparison fold into the optional `## Design challenge` section, and the gate never blocks the write (see **Challenge gate** in `skills/stride-ideation/SKILL.md`),
 - the advisory `requirements-reviewer` pass before the write (dispatch the requirements-reviewer custom agent) — its findings are surfaced to the human as a single multi-select decision through OpenCode's question UI (each finding one line, severity-tagged, plus an explicit "Address none — write as-is" option) that feeds the at-most-one refinement round; an `approved` verdict with no findings shows no prompt, and the reviewer never blocks the write (see **Reviewer pass** in `skills/stride-ideation/SKILL.md`).
 
 When the skill returns, you will have a single string `DRAFT_DOC` containing the fully composed requirements markdown — every gated section present and substantive. If the skill returns without a draft (user aborted, hard gate not satisfied), stop here and exit cleanly — do NOT write anything to disk and do NOT commit.
@@ -163,10 +164,10 @@ The skill returns prose for each section but the on-disk format is fixed by the 
   - <bulleted, each measurable>
 
 ## Assumptions
-*Ordered highest to lowest risk; the riskiest entry is marked `(R)` (or `**(riskiest)**`).*
-- <riskiest assumption> (R)
-- <next-riskiest assumption>
-- <remaining assumptions, in decreasing risk>
+*Ordered highest to lowest risk; the riskiest entry is marked `(R)` (or `**(riskiest)**`). Each entry also carries the challenge gate's confidence rating — `(high)`, `(medium)`, or `(low)` — folded in place by the assumption-confidence audit.*
+- <riskiest assumption> (R) (low)
+- <next-riskiest assumption> (medium)
+- <remaining assumptions, in decreasing risk> (high)
 
 ## Constraints
 - <bullets — non-negotiable>
@@ -182,9 +183,18 @@ The skill returns prose for each section but the on-disk format is fixed by the 
 
 ## Open questions
 <optional; bullets of deferred items>
+
+## Design challenge
+<optional (all profiles); present only when the challenge gate surfaced material findings>
+- **Blind spots:** <unstated dependencies, omitted stakeholders, untested edge cases, failure modes the premortem missed>
+- **Alternative A:** <a distinct alternative approach to the proposed design>
+- **Alternative B:** <a second distinct alternative approach>
+- **Trade-off comparison:** <proposed design vs Alternative A vs Alternative B across cost, risk, complexity, and timeline>
 ```
 
-The seven hard-gated sections appear above the two optional ones (`Sketch`, `Open questions`). Include the optional sections only if the conversation produced substantive content for them. If the draft is missing any gated section, treat that as a skill bug and abort — do NOT paper over it by writing an incomplete doc.
+The seven hard-gated sections appear above the three optional ones (`Sketch`, `Open questions`, `Design challenge`). Include the optional sections only if the conversation produced substantive content for them. If the draft is missing any gated section, treat that as a skill bug and abort — do NOT paper over it by writing an incomplete doc.
+
+**The `## Design challenge` section is profile-independent and advisory.** It holds the output of the challenge gate (see Step 5) under every profile (`lean`, `product`, `discovery`, `lean-startup`) — it is NOT a hard gate and is omitted when the gate surfaced nothing material. The assumption-confidence ratings the gate produces do NOT live here; they fold back into the `## Assumptions` entries in place (the `(high)`/`(medium)`/`(low)` annotation shown in the template above). Only the blind spots, the two alternatives, and the trade-off comparison land in this section. Like the round recap, the `Design challenge` section is never one of the seven gated sections.
 
 **Decomposition seams (optional, freeform).** If the conversation surfaced that the work splits across multiple independent surfaces — separate plugins, separate services, separate repos that ship on their own cadences — append a freeform `## Decomposition seams` section after the optional sections. List each surface as a numbered markdown item with a bold name, e.g. `1. **Kanban app** — owns the JSON contract`, `2. **stride plugin** — adapter for the reference workflow`. The section is freeform and the ideation skill does NOT gate it. Its downstream consumer is `/stridify --goal <name|index>`: when a requirements doc has many surfaces, the user can run `/stridify` once per surface (`/stridify <path> --goal 1`, `/stridify <path> --goal 2`, …) to reduce per-dispatch prompt size and the blast radius of a single subagent failure. `/stridify` also prints a one-line preflight advisory suggesting `--goal` when the section enumerates more than 3 surfaces. Producing a Decomposition seams section here is the natural way for the user to discover the partitioning flag.
 

@@ -43,6 +43,17 @@ The dependency between G1 and G2 is hard: G2's first task literally cannot be sc
 
 This is the shape the multi-goal split rule was designed for — code-coupled work that exceeds the soft cap and admits a clean seam.
 
+## Protocol-output fixture (no batch pair)
+
+### 4. Challenge-gate output — `saved-filters-challenge-gate`
+
+- **Requirements:** `2026-05-12T120300-saved-filters-challenge-gate-requirements.md`
+- **Batch:** none — this fixture is a standalone `/ideate` output, not a `/stridify` decomposition pair.
+
+Unlike the three pairs above, this fixture exists to demonstrate the **challenge-gate output shape** (added in the `## Challenge gate` section of `skills/stride-ideation/SKILL.md` and the Step-6 `## Design challenge` template in `commands/ideate.md`). It shows what a committed requirements doc looks like *after* the gate has run: a `## Design challenge` section holding two distinct alternatives and a cost/risk/complexity/timeline trade-off comparison, plus an `## Assumptions` section whose entries carry the gate's `(high)`/`(medium)`/`(low)` confidence ratings folded in place (alongside the `(R)` riskiest marker).
+
+It is the calibration reference for "what good challenge-gate output looks like," and it is the fixture the `lib/test-challenge-gate.sh` unit suite (and its `lib/test-challenge-gate.ps1` mirror) and Stage 6 of `lib/run_smoke_test.sh` (and `lib/run_smoke_test.ps1`) assert against. Because it is not a decomposition pair, it has no `*-stride-batch.json` and is not part of the drift-check / validator regression loop.
+
 ## Re-running and updating
 
 To verify the fixtures match current decomposer behavior:

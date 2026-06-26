@@ -11,12 +11,13 @@ Captured at `2026-05-12T19:42:00Z` against the upstream `stride-ideation` plugin
 | 3 | `lib/read_auth.py` against a fixture `.stride_auth.md` | extracts `STRIDE_API_URL` and the `API Token` line (NOT the `Local API Token` line — the negative-lookbehind in `read_auth.py` does the right thing) |
 | 4 | `lib/strip_audit_fields.py` against the same batch | `source_spec`, `source_spec_sha256`, `decomposition_notes` removed from the in-memory payload; `goals` preserved; on-disk file byte-for-byte unchanged |
 | 5 | Response-rendering Python from `skills/stride-ideation-stridify/SKILL.md` against a canned 2xx body | renders a two-column `G/W` identifier table |
+| 6 | Challenge-gate fixture shape against `fixtures/2026-05-12T120300-saved-filters-challenge-gate-requirements.md` | `## Design challenge` section present with two alternatives and a cost/risk/complexity/timeline trade-off; Assumptions carry `(high)`/`(medium)`/`(low)` confidence ratings |
 
-Result: **10 ✓, 0 ✗**, `10 passed, 0 failed`.
+Result: **14 ✓, 0 ✗**, `14 passed, 0 failed`.
 
 ## What was NOT verified in this capture
 
-- **Stage 6: live HTTP POST to a Stride instance.** `lib/run_smoke_test.sh --live <batch.json>` exercises this stage end-to-end (read auth → strip → POST → render real response). It was not run during this capture because the available Stride instance (`https://www.stridelikeaboss.com`) is the human's production workspace, not a dedicated dev environment. The W422 pitfall explicitly warned against testing against prod.
+- **Stage 7: live HTTP POST to a Stride instance.** `lib/run_smoke_test.sh --live <batch.json>` exercises this stage end-to-end (read auth → strip → POST → render real response). It was not run during this capture because the available Stride instance (`https://www.stridelikeaboss.com`) is the human's production workspace, not a dedicated dev environment. The W422 pitfall explicitly warned against testing against prod.
 
 - **Interactive `stride-ideation-ideate` Q&A loop.** The ideation skill drives a multi-turn question-and-answer conversation via the platform's question UI that cannot be exercised from a non-interactive smoke-test runner. Coverage of that flow lives in the human-driven end-to-end procedure documented in the README's *Re-running the interactive end-to-end test* section.
 
@@ -46,7 +47,7 @@ The interactive `stride-ideation-ideate` flow has to be re-run by a human in Cop
 If you do run `--live`, the expected output is approximately:
 
 ```
-Stage 6: LIVE POST to the Stride API (NOTE: creates real tasks)
+Stage 7: LIVE POST to the Stride API (NOTE: creates real tasks)
   ✓  live POST returned HTTP 201
 
 Created identifiers:

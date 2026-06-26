@@ -5,6 +5,12 @@ All notable changes to the Stride Ideation extension for OpenCode are documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-06-26
+
+### Added
+
+- **Challenge gate** — a mandatory, profile-independent design stress-test ported from the canonical `cheezy/stride-ideation` plugin. After the round-4 premortem (and the Round-5 MVP-design batch under `lean-startup`) and before the reviewer pass, `/ideate` runs a gate over the assembled draft with four components: (1) an **assumption-confidence audit** that rates every assumption `high`/`medium`/`low`; (2) a **blind-spot scan** for unstated dependencies, omitted stakeholders, untested edge cases, and failure modes the premortem missed; (3) **two distinct alternative approaches** to the proposed design; and (4) a **cost/risk/complexity/timeline trade-off comparison** against those alternatives. The gate is surfaced through OpenCode's question UI as a single multi-select decision with an explicit "Challenge nothing — write as-is" option, and is **advisory — it never blocks the write**. Confidence ratings fold into the `## Assumptions` entries in place; the blind spots, the two alternatives, and the trade-off table fold into a new optional `## Design challenge` section (not one of the seven hard-gated sections, and never surfaced in the round recap). It runs under every profile, including `--continue` sessions. Documented in `skills/stride-ideation/SKILL.md`, surfaced in `commands/ideate.md`, described in the README, and regression-guarded by a new `lib/test-challenge-gate.{sh,ps1}` unit suite, a Stage 6 check in both smoke runners, and a calibration fixture (`fixtures/2026-05-12T120300-saved-filters-challenge-gate-requirements.md`).
+
 ## [0.2.1] - 2026-06-22
 
 ### Fixed

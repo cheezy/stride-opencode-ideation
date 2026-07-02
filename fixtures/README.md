@@ -1,11 +1,11 @@
 # fixtures/
 
-Smoke-test and regression fixtures for the `stride-copilot-ideation` plugin (copilot port of `cheezy/stride-ideation`). Each fixture pair (`*-requirements.md` + `*-stride-batch.json`) shares a timestamp prefix and demonstrates a different shape of decomposition output. The fixtures are copied verbatim from upstream so a Copilot run against the `stride-ideation-stridify` skill should produce comparable shapes when the decomposer agent is invoked against the same requirements doc.
+Smoke-test and regression fixtures for the `stride-opencode-ideation` extension (OpenCode port of `cheezy/stride-ideation`). Each fixture pair (`*-requirements.md` + `*-stride-batch.json`) shares a timestamp prefix and demonstrates a different shape of decomposition output. The fixtures are copied verbatim from upstream so an OpenCode run of the `/stridify` command should produce comparable shapes when the `requirements-decomposer` agent is dispatched against the same requirements doc.
 
 The fixtures serve two purposes:
 
-1. **Calibration reference** — when an implementer is unsure what "good" `stride-ideation-ideate` or `stride-ideation-stridify` skill output looks like for their case, they can open the closest-matching fixture pair as a reference.
-2. **Regression check** — when the `requirements-decomposer` agent prompt changes, re-activate the `stride-ideation-stridify` skill against each `*-requirements.md` and diff the result against the committed `*-stride-batch.json`. Material drift means the prompt change altered observable behavior — that may be intentional, but it should be explicit. (Note: the stride-ideation-stridify skill also POSTs the batch to the Stride API, so use a non-prod workspace when running regressions.)
+1. **Calibration reference** — when an implementer is unsure what "good" `/ideate` or `/stridify` output looks like for their case, they can open the closest-matching fixture pair as a reference.
+2. **Regression check** — when the `requirements-decomposer` agent prompt changes, re-run `/stridify` against each `*-requirements.md` and diff the result against the committed `*-stride-batch.json`. Material drift means the prompt change altered observable behavior — that may be intentional, but it should be explicit. (Note: `/stridify` also POSTs the batch to the Stride API, so use a non-prod workspace when running regressions.)
 
 The fixtures are **not** training data. The decomposer prompt should produce these shapes from first principles, not by memorizing these specific outputs. If a prompt change requires rewriting these fixtures to match, that is a yellow flag — confirm the prompt change is more general than just "match the fixtures."
 
@@ -64,11 +64,11 @@ for f in fixtures/*-stride-batch.json; do
   python3 lib/validate_batch.py "$f" || echo "FAILED: $f"
 done
 
-# Re-activate stride-ideation-stridify against each requirements fixture and diff
-# (interactive — requires a Copilot CLI session; will also POST to the
+# Re-run /stridify against each requirements fixture and diff
+# (interactive — requires an OpenCode session; will also POST to the
 # Stride API, so prefer a non-prod workspace for diffing-only runs)
-# > Activate stride-ideation-stridify against fixtures/2026-05-12T120000-dark-mode-toggle-requirements.md
+# /stridify fixtures/2026-05-12T120000-dark-mode-toggle-requirements.md
 # diff fixtures/2026-05-12T120000-dark-mode-toggle-stride-batch.json <newly-written-file>
 ```
 
-When you intentionally update a fixture (because the requirements fixture changed, or because a prompt update legitimately produces a different shape), recompute the `source_spec_sha256` and update the committed batch file in the same commit. The stamping pipeline in `skills/stride-ideation-stridify/SKILL.md` handles this automatically when the skill is activated.
+When you intentionally update a fixture (because the requirements fixture changed, or because a prompt update legitimately produces a different shape), recompute the `source_spec_sha256` and update the committed batch file in the same commit. The stamping pipeline in `commands/stridify.md` handles this automatically when run through the slash command.

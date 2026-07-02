@@ -1,6 +1,6 @@
 {
   "source_spec": "fixtures/2026-05-12T120100-notifications-system-requirements.md",
-  "source_spec_sha256": "6e0a5207b4524e4c9bc14c56f98e4349c8fa8824489aa60c107d3a19f600370c",
+  "source_spec_sha256": "fa029a50b3eab7fed869f3603a7630f14d692195365c47fd83ea7595041a71d2",
   "decomposition_notes": "Multi-goal split along the three orthogonal seams from the Sketch section. G1 (events + queue) emits notification_requested into Oban; G2 (preferences UI) lets users opt in to channels and configure DND; G3 (email rendering + dispatch) consumes the queue and emails out. G1 and G2 are independent and can be claimed in any order. G3 depends on G1 — claim G1 first, let its queue contract land in main, then claim G3. G2 is fully parallel.",
   "goals": [
     {

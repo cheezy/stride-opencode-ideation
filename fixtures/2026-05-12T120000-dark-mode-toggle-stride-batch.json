@@ -1,6 +1,6 @@
 {
   "source_spec": "fixtures/2026-05-12T120000-dark-mode-toggle-requirements.md",
-  "source_spec_sha256": "d34c559d08931f1ff1e60fcb6205def5fa6e5cc7a771bccf1885aa9813a40674",
+  "source_spec_sha256": "1d1198a484e67ddfbff4cc07a7f8ea3963bb966fa3ed3d79d0e6e3b69f13b1a3",
   "decomposition_notes": "Single-goal shape. All work is in the UI layer (token migration, toggle component, preference persistence, FOUC prevention). Tasks are ordered by code-coupling: tokens must land before the toggle component can reference them, and persistence must land before the FOUC script can read it. No cross-goal coordination required.",
   "goals": [
     {

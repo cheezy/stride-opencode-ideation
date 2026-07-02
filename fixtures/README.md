@@ -1,6 +1,6 @@
 # fixtures/
 
-Smoke-test and regression fixtures for the `stride-opencode-ideation` extension (OpenCode port of `cheezy/stride-ideation`). Each fixture pair (`*-requirements.md` + `*-stride-batch.json`) shares a timestamp prefix and demonstrates a different shape of decomposition output. The fixtures are copied verbatim from upstream so an OpenCode run of the `/stridify` command should produce comparable shapes when the `requirements-decomposer` agent is dispatched against the same requirements doc.
+Smoke-test and regression fixtures for the `stride-opencode-ideation` extension (OpenCode port of `cheezy/stride-ideation`). Each fixture pair (`*-requirements.md` + `*-stride-batch.json`) shares a timestamp prefix and demonstrates a different shape of decomposition output. The fixtures are copied from upstream (the three decomposition pairs' requirements docs have since been shape-upgraded in this port ahead of upstream — see the note below) so an OpenCode run of the `/stridify` command should produce comparable shapes when the `requirements-decomposer` agent is dispatched against the same requirements doc.
 
 The fixtures serve two purposes:
 
@@ -10,6 +10,8 @@ The fixtures serve two purposes:
 The fixtures are **not** training data. The decomposer prompt should produce these shapes from first principles, not by memorizing these specific outputs. If a prompt change requires rewriting these fixtures to match, that is a yellow flag — confirm the prompt change is more general than just "match the fixtures."
 
 ## The three pairs
+
+All three pairs' requirements docs comply with the current hard-gate shapes — Assumptions ranked highest-to-lowest risk with the riskiest marked `(R)` and per-entry confidence ratings, Success metrics split into leading and lagging indicators (upgraded in this port ahead of upstream, which still carries the pre-gate shapes).
 
 ### 1. Small / single-goal — `dark-mode-toggle`
 

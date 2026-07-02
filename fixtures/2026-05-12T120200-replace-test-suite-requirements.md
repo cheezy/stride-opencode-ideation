@@ -10,15 +10,18 @@ The current test suite has grown to 1,400+ tests across 90+ files. Wall-clock ru
 Decide whether to keep extending the current test suite or start a parallel test architecture (with a different test framework, runner, or layering convention) — and if "start parallel," produce a one-month migration plan with a concrete first vertical slice. The output of this ideation session is a decision artifact, not an implementation; the decision then drives either an extension project or a replacement project.
 
 ## Success metrics
-- A written decision document committed by end of week with a clear "keep / extend / replace" recommendation
-- If "replace," a named first vertical slice that can be implemented in one sprint and that demonstrates the new pattern on at least 30 tests
-- Either way, a measurement plan that captures the current baseline (wall-clock, mock-vs-integration ratio, flake rate over the last 14 days) so the next decision is data-driven instead of vibes-driven
+- **leading indicators** (observable while the work is in flight, predict the outcome):
+  - Either way, a measurement plan that captures the current baseline (wall-clock, mock-vs-integration ratio, flake rate over the last 14 days) so the next decision is data-driven instead of vibes-driven
+- **lagging indicators** (the outcome itself, observable only after it has occurred):
+  - A written decision document committed by end of week with a clear "keep / extend / replace" recommendation
+  - If "replace," a named first vertical slice that can be implemented in one sprint and that demonstrates the new pattern on at least 30 tests
 
 ## Assumptions
-- "Replace" here means architecture, not the choice between ExUnit and a third-party framework — we are staying on ExUnit. The replacement question is about layering, test fixtures, and how database state is managed.
-- The current 45s/3min runtime is unbearable for at least one core contributor, but we do not yet have evidence it is bottlenecking the team broadly
-- Most of the existing tests are correct in what they assert — we are debating ergonomics and runtime, not correctness
-- A measurement pass on the current suite (slowest 20 tests, mock-to-integration ratio per module) is cheap and would change the conclusion
+*Ordered highest to lowest risk; the riskiest entry is marked `(R)` (or `**(riskiest)**`). Each entry also carries the challenge gate's confidence rating — `(high)`, `(medium)`, or `(low)` — folded in place by the assumption-confidence audit.*
+- The current 45s/3min runtime is unbearable for at least one core contributor, but we do not yet have evidence it is bottlenecking the team broadly — the premortem failure mode is spending a month on a replacement that solves only the loudest voice's problem (R) (low)
+- Most of the existing tests are correct in what they assert — we are debating ergonomics and runtime, not correctness (medium)
+- A measurement pass on the current suite (slowest 20 tests, mock-to-integration ratio per module) is cheap and would change the conclusion (medium)
+- "Replace" here means architecture, not the choice between ExUnit and a third-party framework — we are staying on ExUnit. The replacement question is about layering, test fixtures, and how database state is managed. (high)
 
 ## Constraints
 - We cannot delete existing tests without coverage replacement — every replaced test must have an equivalent assertion in the new layer

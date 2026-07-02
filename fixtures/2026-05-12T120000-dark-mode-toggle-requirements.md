@@ -10,16 +10,19 @@ Users running the app at night against a bright white UI report eye strain, and 
 Users can flip a single toggle in the app header and the entire interface (all routes, all components, all modal overlays) switches to a low-light palette without a page reload. The preference persists across sessions.
 
 ## Success metrics
-- 100% of routes render correctly in dark mode (manual walkthrough catches zero contrast-failure regressions on a checked list of 14 pages)
-- Toggle round-trip latency under 50ms on a mid-range laptop (no perceptible flicker)
-- Dark-mode preference persists across browser restarts (assert via cookie/localStorage round-trip)
-- Less than 1 percent of dark-mode-related bug reports from beta users in the 30 days after launch
+- **leading indicators** (observable while the work is in flight, predict the outcome):
+  - 100% of routes render correctly in dark mode (manual walkthrough catches zero contrast-failure regressions on a checked list of 14 pages)
+  - Toggle round-trip latency under 50ms on a mid-range laptop (no perceptible flicker)
+  - Dark-mode preference persists across browser restarts (assert via cookie/localStorage round-trip)
+- **lagging indicators** (the outcome itself, observable only after it has occurred):
+  - Less than 1 percent of dark-mode-related bug reports from beta users in the 30 days after launch
 
 ## Assumptions
-- The existing daisyUI theme system can hold both light and dark palettes side-by-side without a custom Tailwind plugin
-- Browsers in the supported matrix all honor the `data-theme` attribute pattern already used in `app.css`
-- Users do not need per-route theme override — one toggle controls the whole app
-- The two existing modal components (`delayed_modal.ex`, `core_components.ex`) follow the same token system once retrofitted
+*Ordered highest to lowest risk; the riskiest entry is marked `(R)` (or `**(riskiest)**`). Each entry also carries the challenge gate's confidence rating — `(high)`, `(medium)`, or `(low)` — folded in place by the assumption-confidence audit.*
+- The token retrofit of the two existing modal components (`delayed_modal.ex`, `core_components.ex`) — and of every other component embedding its own colors — catches every hardcoded value; the premortem failure mode is a missed color shipping pages that render half-light, half-dark, which the 14-page manual walkthrough exists to catch (R) (medium)
+- Users do not need per-route theme override — one toggle controls the whole app (medium)
+- The existing daisyUI theme system can hold both light and dark palettes side-by-side without a custom Tailwind plugin (high)
+- Browsers in the supported matrix all honor the `data-theme` attribute pattern already used in `app.css` (high)
 
 ## Constraints
 - No new runtime dependencies (no theming JS library)

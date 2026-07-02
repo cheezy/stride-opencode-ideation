@@ -1,6 +1,6 @@
 {
   "source_spec": "fixtures/2026-05-12T120200-replace-test-suite-requirements.md",
-  "source_spec_sha256": "ff121f0ef8436de760f21aaf9ccb4aa0a32aa9201eb906589e4dac31a95038b3",
+  "source_spec_sha256": "28b0b094414f5a1070b810d17c15ec96657b17e8bf45a5abd00439b4c22fa24a",
   "decomposition_notes": "Sizing-driven split. The requirements doc describes a decision-then-execute initiative whose full task count (measurement + decision + first-vertical-slice) would total 14 tasks, well past the ~10-task soft cap. Split at the natural decide-vs-execute seam: G1 owns measurement + the decision document; G2 owns the first vertical slice of whichever path the decision selects. CROSS-GOAL CLAIM ORDERING: Claim G1 first and let its final task (the decision document) land in main BEFORE claiming G2. G2's first task cannot be scoped without G1's recommendation — its acceptance criteria reference the path G1 selects. Within each goal, tasks use array-index dependencies for sibling sequencing.",
   "goals": [
     {

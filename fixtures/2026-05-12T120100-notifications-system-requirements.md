@@ -10,16 +10,19 @@ Time-sensitive events in the app — approval requests, board mentions, dependen
 Users receive timely, low-noise notifications for the small set of events that genuinely need their attention (approvals owed to them, mentions of them in comments, dependency unblocked for tasks they own), via channels they explicitly opt into (email by default, with future extensibility to in-app inbox and digest), with per-user preferences that respect Do Not Disturb windows.
 
 ## Success metrics
-- Approval lag p50 drops below 8 hours within 4 weeks of launch (measured from current 28h baseline)
-- Less than 5 percent of notifications marked as "not useful" by users via the per-message feedback link
-- Per-user notification volume below 12 per business day on average (the noise ceiling we committed to)
-- Unsubscribe / opt-out rate below 10 percent in the 60 days after launch
+- **leading indicators** (observable while the work is in flight, predict the outcome):
+  - Less than 5 percent of notifications marked as "not useful" by users via the per-message feedback link
+  - Per-user notification volume below 12 per business day on average (the noise ceiling we committed to)
+- **lagging indicators** (the outcome itself, observable only after it has occurred):
+  - Approval lag p50 drops below 8 hours within 4 weeks of launch (measured from current 28h baseline)
+  - Unsubscribe / opt-out rate below 10 percent in the 60 days after launch
 
 ## Assumptions
-- The existing Swoosh + SMTP mailer in `lib/kanban/mailer.ex` is the right transport for v1; we will not add a third-party notification service
-- Users will configure their preferences once on initial opt-in and rarely change them
-- The three event classes (approvals, mentions, dependency-unblocked) cover 90 percent of "I missed something important" complaints
-- Email deliverability to corporate inboxes is already adequate (Postmark/Mailgun parity not required)
+*Ordered highest to lowest risk; the riskiest entry is marked `(R)` (or `**(riskiest)**`). Each entry also carries the challenge gate's confidence rating — `(high)`, `(medium)`, or `(low)` — folded in place by the assumption-confidence audit.*
+- Email deliverability to corporate inboxes is already adequate (Postmark/Mailgun parity not required); the premortem failure mode is notifications silently landing in spam folders, so approval lag never moves and we misread the silence as low demand (R) (low)
+- The three event classes (approvals, mentions, dependency-unblocked) cover 90 percent of "I missed something important" complaints (medium)
+- Users will configure their preferences once on initial opt-in and rarely change them (medium)
+- The existing Swoosh + SMTP mailer in `lib/kanban/mailer.ex` is the right transport for v1; we will not add a third-party notification service (high)
 
 ## Constraints
 - Must not introduce a new background-job library — reuse the existing Oban setup

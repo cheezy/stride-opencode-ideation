@@ -46,7 +46,7 @@ assert_eq() {
 # hashing pipeline regressed and the recorded SHA no longer matches reality.
 
 FIXTURE_PATH="${REPO_ROOT}/fixtures/2026-05-12T120000-dark-mode-toggle-requirements.md"
-FIXTURE_EXPECTED_SHA="d34c559d08931f1ff1e60fcb6205def5fa6e5cc7a771bccf1885aa9813a40674"
+FIXTURE_EXPECTED_SHA="1d1198a484e67ddfbff4cc07a7f8ea3963bb966fa3ed3d79d0e6e3b69f13b1a3"
 
 if [ ! -f "$FIXTURE_PATH" ]; then
   FAIL=$(( FAIL + 1 ))

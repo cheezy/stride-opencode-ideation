@@ -28,8 +28,9 @@ Result: **14 ✓, 0 ✗**, `14 passed, 0 failed`.
 ./lib/run_smoke_test.sh
 
 # Live mode — POSTs to the Stride API using the auth in
-# ${CLAUDE_PROJECT_DIR:-$PWD}/.stride_auth.md (the project dir when set,
-# falling back to the current directory — the same resolution
+# ${OPENCODE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}/.stride_auth.md
+# (OpenCode project dir first, the legacy Claude Code variable as a compat
+# fallback, then the current directory — the same resolution
 # commands/stridify.md Step 3 uses).
 # Use a dev Stride instance. Created tasks are NOT auto-cleaned.
 ./lib/run_smoke_test.sh --live fixtures/2026-05-12T120000-dark-mode-toggle-stride-batch.json

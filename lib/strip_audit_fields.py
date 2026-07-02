@@ -6,10 +6,10 @@ Usage:
 
 Reads the file at the given path, removes the three local-audit fields
 (`source_spec`, `source_spec_sha256`, `decomposition_notes`) that
-`/stride-ideation:decompose` stamped at the root, and prints the
+`/stridify` stamped at the root (Step 8b), and prints the
 API-ready payload to stdout. Exits 0 on success.
 
-The resulting JSON is what `/stride-ideation:ship` POSTs to
+The resulting JSON is what `/stridify` (Step 9b) POSTs to
 Stride's `/api/tasks/batch` endpoint. The three stripped fields are
 useful for local audit and drift detection but the Stride API does
 not accept them and silently drops them — better to strip

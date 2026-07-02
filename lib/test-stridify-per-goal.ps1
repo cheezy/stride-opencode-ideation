@@ -1,6 +1,6 @@
 # PowerShell mirror of test-stridify-per-goal.sh — exercises the
 # Sti-ResolveGoal, Sti-ExtractSeams, and Sti-ScopeDocToSeam cmdlets that
-# the stride-ideation-stridify skill's --goal flow depends on.
+# the /stridify command's --goal flow depends on.
 
 Set-StrictMode -Version Latest
 

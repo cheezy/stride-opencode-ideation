@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a Stride batch JSON document produced by /stride-ideation:decompose.
+"""Validate a Stride batch JSON document produced by /stridify.
 
 Usage:
     python3 lib/validate_batch.py <path-to-stride-batch.json>
@@ -22,7 +22,7 @@ The named error variants are exactly the five the task contract calls out:
 
 The validator does NOT enforce per-task Stride-API field shapes
 (pitfalls-as-array-of-strings, verification_steps-as-objects, etc.). Those
-are the decomposer agent's responsibility; /ship surfaces the API's own
+are the decomposer agent's responsibility; /stridify's Step 9 POST surfaces the API's own
 error if anything slips through.
 """
 

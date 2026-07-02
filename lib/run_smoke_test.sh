@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke test for the /stride-ideation:ship pipeline.
+# End-to-end smoke test for the /stridify pipeline.
 #
 # Composes every helper the slash command body invokes — in the
 # same order — and verifies each stage produces the expected output.
@@ -16,7 +16,8 @@
 #       response-rendering code is also exercised.
 #
 #   ./lib/run_smoke_test.sh --live <stride-batch.json>
-#       LIVE mode. Reads auth from $CLAUDE_PROJECT_DIR/.stride_auth.md
+#       LIVE mode. Reads auth from the project directory's .stride_auth.md
+#       (resolved OPENCODE_PROJECT_DIR, then CLAUDE_PROJECT_DIR, then pwd)
 #       and POSTs the supplied batch to the Stride API. Use a dev
 #       Stride instance — this creates real tasks.
 #
@@ -247,7 +248,7 @@ fi
 if [ "$MODE" = "live" ]; then
   printf '\nStage 7: LIVE POST to the Stride API (NOTE: creates real tasks)\n'
 
-  AUTH_FILE="${CLAUDE_PROJECT_DIR:-$PWD}/.stride_auth.md"
+  AUTH_FILE="${OPENCODE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}/.stride_auth.md"
   if [ ! -f "$AUTH_FILE" ]; then
     nope "--live requires .stride_auth.md at $AUTH_FILE" ""
   else

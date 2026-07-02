@@ -128,10 +128,10 @@ fi
 
 ### Step 3: Preflight auth from `.stride_auth.md`
 
-Read auth BEFORE the expensive subagent dispatch so a misconfigured `.stride_auth.md` fails fast without first burning a decomposer pass and writing a batch JSON that can't be shipped. Locate `.stride_auth.md` (the convention is `$CLAUDE_PROJECT_DIR/.stride_auth.md` — the same file the Stride orchestrator reads). Invoke `lib/read_auth.py` via `bash` and source its output:
+Read auth BEFORE the expensive subagent dispatch so a misconfigured `.stride_auth.md` fails fast without first burning a decomposer pass and writing a batch JSON that can't be shipped. Locate `.stride_auth.md` in the project directory, resolved via the same fallback chain the companion `stride-opencode` plugin uses — `${OPENCODE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}` (OpenCode-native variable first, `CLAUDE_PROJECT_DIR` kept as a compat fallback for sessions that set the legacy variable, current directory as the last resort). It is the same `.stride_auth.md` the Stride workflow reads. Invoke `lib/read_auth.py` via `bash` and source its output:
 
 ```bash
-AUTH_FILE="${CLAUDE_PROJECT_DIR:-$PWD}/.stride_auth.md"
+AUTH_FILE="${OPENCODE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}/.stride_auth.md"
 if [ ! -f "$AUTH_FILE" ]; then
   echo "stride-ideation: .stride_auth.md not found at $AUTH_FILE" >&2
   exit 1

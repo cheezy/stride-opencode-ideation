@@ -10,7 +10,8 @@
 #       Dry-run mode. Uses fixtures/2026-05-12T120000-dark-mode-toggle-stride-batch.json.
 #
 #   pwsh -File lib\run_smoke_test.ps1 -Live <stride-batch.json>
-#       LIVE mode. Reads auth from $CLAUDE_PROJECT_DIR/.stride_auth.md
+#       LIVE mode. Reads auth from the project directory's .stride_auth.md
+#       (resolved OPENCODE_PROJECT_DIR, then CLAUDE_PROJECT_DIR, then pwd)
 #       and POSTs the supplied batch to the Stride API. Use a dev
 #       Stride instance — this creates real tasks.
 #
@@ -245,7 +246,7 @@ if (Test-Path -LiteralPath $gateFixture) {
 if ($Mode -eq 'live') {
     Write-Host ''
     Write-Host 'Stage 7: LIVE POST to the Stride API (NOTE: creates real tasks)'
-    $projectDir = if ($env:CLAUDE_PROJECT_DIR) { $env:CLAUDE_PROJECT_DIR } else { (Get-Location).Path }
+    $projectDir = if ($env:OPENCODE_PROJECT_DIR) { $env:OPENCODE_PROJECT_DIR } elseif ($env:CLAUDE_PROJECT_DIR) { $env:CLAUDE_PROJECT_DIR } else { (Get-Location).Path }
     $authFile = Join-Path $projectDir '.stride_auth.md'
     if (-not (Test-Path -LiteralPath $authFile)) {
         Fail "-Live requires .stride_auth.md at $authFile"

@@ -91,8 +91,11 @@ MANAGED_BLOCK="$(mktemp)"
 # END marker line, where END follows BEGIN. Only a well-formed pair triggers an
 # in-place refresh -- an orphaned or malformed marker (e.g. BEGIN with no END)
 # must NEVER truncate user content, so it falls through to the append path.
-# This mirrors the install.ps1 first-BEGIN / first-END / END-after-BEGIN logic
-# exactly so both installers behave identically.
+# Matching is WHOLE-LINE exact (`grep -nxF`): marker text embedded mid-line in
+# user prose is not a block boundary. install.ps1 uses the same whole-line
+# first-BEGIN / first-END / END-after-BEGIN semantics. (One known edge: a
+# CRLF-ended marker line refreshes on install.ps1 but appends here — both
+# outcomes still preserve user content.)
 BEGIN_LINE=""
 END_LINE=""
 if [ -f "$DEST_AGENTS" ]; then
@@ -109,7 +112,12 @@ elif [ -n "$BEGIN_LINE" ] && [ -n "$END_LINE" ] && [ "$END_LINE" -gt "$BEGIN_LIN
   # everything after END, swapping the block between them.
   UPDATED="$(mktemp)"
   {
-    head -n "$((BEGIN_LINE - 1))" "$DEST_AGENTS"
+    # Guard the head call: `head -n 0` is illegal on BSD/macOS head, and
+    # BEGIN_LINE is 1 whenever the block sits at the top of the file — the
+    # exact state a fresh install produces, so re-installs hit this path.
+    if [ "$BEGIN_LINE" -gt 1 ]; then
+      head -n "$((BEGIN_LINE - 1))" "$DEST_AGENTS"
+    fi
     cat "$MANAGED_BLOCK"
     tail -n "+$((END_LINE + 1))" "$DEST_AGENTS"
   } > "$UPDATED"

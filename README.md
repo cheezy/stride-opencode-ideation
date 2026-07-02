@@ -83,7 +83,17 @@ mkdir -p .opencode/skills .opencode/commands .opencode/agents
 cp -R /tmp/stride-opencode-ideation/skills/.   .opencode/skills/
 cp -R /tmp/stride-opencode-ideation/commands/. .opencode/commands/
 cp     /tmp/stride-opencode-ideation/agents/*.md .opencode/agents/
-cp     /tmp/stride-opencode-ideation/AGENTS.md ./AGENTS.md
+
+# AGENTS.md: NEVER copy over an existing file — that clobbers your own
+# content, which the installer scripts go out of their way to preserve.
+# If you have no AGENTS.md yet, copy the plugin's:
+[ -f AGENTS.md ] || cp /tmp/stride-opencode-ideation/AGENTS.md ./AGENTS.md
+# If you already have one, APPEND the plugin's guidance as the managed
+# block instead (mirroring what install.sh does):
+#   { echo; echo '<!-- BEGIN stride-ideation -->'; \
+#     cat /tmp/stride-opencode-ideation/AGENTS.md; \
+#     echo '<!-- END stride-ideation -->'; } >> AGENTS.md
+# (Or simply run ./install.sh, which handles create/refresh/append safely.)
 
 # /stridify also needs the lib/ helpers and (for the smoke test) fixtures/
 cp -R /tmp/stride-opencode-ideation/lib       .opencode/

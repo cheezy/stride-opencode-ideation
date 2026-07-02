@@ -74,7 +74,9 @@ try {
     foreach ($d in @('skills', 'commands', 'agents', 'lib', 'fixtures')) {
         $dest = Join-Path $OcDir $d
         New-Item -ItemType Directory -Force -Path $dest | Out-Null
-        Copy-Item (Join-Path $Src $d '*') -Destination $dest -Recurse -Force
+        # Nested Join-Path: the three-argument form requires PowerShell 6+;
+        # nesting keeps this runnable on stock Windows PowerShell 5.1.
+        Copy-Item (Join-Path (Join-Path $Src $d) '*') -Destination $dest -Recurse -Force
     }
     # AGENTS.md orients the main agent. Preserve any existing user-authored file
     # by confining our content to an idempotent, clearly delimited managed block:
@@ -93,15 +95,33 @@ try {
     } else {
         # Read as plain text; never evaluate or source the destination contents.
         $Existing = Get-Content -Raw $DestAgents
-        $startIdx = $Existing.IndexOf($BeginMarker)
-        $endIdx   = $Existing.IndexOf($EndMarker)
-        if (($startIdx -ge 0) -and ($endIdx -ge $startIdx)) {
-            # Refresh the existing managed block in place (markers inclusive).
-            $before  = $Existing.Substring(0, $startIdx)
-            $after   = $Existing.Substring($endIdx + $EndMarker.Length)
-            Set-Content -Path $DestAgents -Value ($before + $Block + $after) -NoNewline
+        # Locate a WELL-FORMED managed block: the first LINE that is exactly the
+        # BEGIN marker and the first LINE that is exactly the END marker, where
+        # END follows BEGIN. Whole-line matching mirrors install.sh's
+        # `grep -nxF` semantics: marker text embedded mid-line in user prose is
+        # NOT a block boundary and must never trigger an in-place refresh
+        # (which could truncate user content). Anything ambiguous falls through
+        # to the append path. (One known edge: a CRLF-ended marker line matches
+        # here but not in install.sh, which appends instead — both outcomes
+        # still preserve user content.)
+        $lines = $Existing -split "`r?`n"
+        $beginLine = -1
+        $endLine   = -1
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if (($beginLine -lt 0) -and ($lines[$i] -ceq $BeginMarker)) { $beginLine = $i }
+            if (($endLine -lt 0) -and ($lines[$i] -ceq $EndMarker)) { $endLine = $i }
+        }
+        if (($beginLine -ge 0) -and ($endLine -gt $beginLine)) {
+            # Refresh the existing managed block in place (marker lines inclusive).
+            $before = @()
+            if ($beginLine -gt 0) { $before = $lines[0..($beginLine - 1)] }
+            $after = @()
+            if ($endLine -lt ($lines.Count - 1)) { $after = $lines[($endLine + 1)..($lines.Count - 1)] }
+            $newLines = @($before) + ($Block -split "`n") + @($after)
+            Set-Content -Path $DestAgents -Value (($newLines -join "`n")) -NoNewline
         } else {
-            # Existing user file with no managed block: append, preserving content.
+            # Existing user file with no well-formed managed block (including an
+            # orphaned BEGIN with no END after it): append, preserving content.
             $sep = if ($Existing.EndsWith("`n")) { "`n" } else { "`n`n" }
             Add-Content -Path $DestAgents -Value ($sep + $Block + "`n") -NoNewline
         }

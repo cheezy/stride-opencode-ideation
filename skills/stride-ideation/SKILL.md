@@ -6,7 +6,7 @@ skills_version: "1.0"
 
 # stride-ideation
 
-This skill turns a vague idea into a structured requirements document through a round-based questioning loop. It is invoked by the `/ideate` command. The questioning loop and reviewer logic live in `command/ideate.md` and `agents/requirements-reviewer.md` — this skill defines the surface contract: which sections are required, when the hard gates fire, what the terminal state looks like.
+This skill turns a vague idea into a structured requirements document through a round-based questioning loop. It is invoked by the `/ideate` command. The questioning loop and reviewer logic live in `commands/ideate.md` and `agents/requirements-reviewer.md` — this skill defines the surface contract: which sections are required, when the hard gates fire, what the terminal state looks like.
 
 ## Hard gate
 
@@ -169,7 +169,7 @@ Example phrasing:
 
 > "Imagine it's six months after we ship and this initiative quietly underperformed. Looking back, what's the single most likely reason it disappointed? Pick the one that would surprise you the *least* in retrospect."
 >
-> *Options offer 3–4 plausible failure-mode framings derived from the current Assumptions and Success Metrics, plus an "Other" free-text option.*
+> *Options offer 3–4 plausible failure-mode framings derived from the current Assumptions and Success Metrics, plus an "Other" free-text option and the standard "I'm not sure — propose candidates" uncertainty-path option (see **Uncertainty path**).*
 
 The user's answer (and any follow-up clarification) is folded into the Assumptions section as one or more new entries describing the failure mode the design depends on NOT happening. After folding in the premortem content, the skill **ranks the Assumptions from highest to lowest risk** and marks the riskiest with `(R)` or `**(riskiest)**` — these shape requirements are enforced by the hard gate (see top of file). If the user's premortem answer reveals a Success Metric that has only lagging indicators (or only leading ones), the skill also batches a follow-up to introduce the missing indicator type before exiting Round 4.
 
@@ -189,6 +189,8 @@ The four questions in the batch (one batch, ≤ 4 questions, hard upper bound):
 2. **(Q2)** What's the smallest/fastest thing you could build, fake, or measure to produce that signal?
 3. **(Q3)** How long would the experiment take and what does it cost?
 4. **(Q4)** What pivot-or-persevere decision will the result trigger?
+
+Each of Q1–Q4 carries the standard "I'm not sure — propose candidates" uncertainty-path option (see **Uncertainty path**): a user who cannot design the experiment unaided gets 2–4 topic-tailored candidate answers with rationales, but the skill still cannot fill the MVP section without the user confirming one.
 
 If no Assumptions entry is marked `(R)` (e.g., the user produced a list under `--continue` from a pre-G104 doc that lacked the marker), fall back to lifting the **topmost** Assumptions entry as the anchor and note inline in the prompt that the marker was absent — do NOT abort Round 5, and do NOT silently pick a different entry without surfacing the gap. The user can mark a riskiest entry on a later refinement.
 
@@ -260,7 +262,7 @@ This is a deliberate contrast with brainstorming skills that lock terminal state
 
 ## What this skill does NOT cover
 
-- **Question-generation logic** — see `command/ideate.md` for how the ideation command resolves topic, manages `--continue`, and decides which questions to batch in each round.
+- **Question-generation logic** — see `commands/ideate.md` for how the ideation command resolves topic, manages `--continue`, and decides which questions to batch in each round.
 - **Reviewer rubric** — see `agents/requirements-reviewer.md` for the exact rubric the reviewer applies to a draft.
-- **Decomposition into Stride tasks AND shipping to Stride in one shot** — see `command/stridify.md` and `agents/requirements-decomposer.md`. The ideation skill stops at the requirements doc. `/stridify` itself ships with a four-layer resilience model: a preflight advisory when a doc enumerates more than 3 surfaces under `## Decomposition seams`, an optional `--goal <name|index>` flag for per-surface dispatch (consumes a `## Decomposition seams` section, partitioning a many-surface doc into one dispatch per surface), a bounded subagent-dispatch retry (3 attempts with ~30s / ~90s backoff on HTTP 529 / network / "overloaded" failures), and a fallback that writes the assembled prompt to a sibling `*-decomposer-prompt.md` file on retry exhaustion. The Stride API POST is not retried; the user re-invokes on a 4xx/5xx. None of this changes the ideation contract — it is downstream behavior.
+- **Decomposition into Stride tasks AND shipping to Stride in one shot** — see `commands/stridify.md` and `agents/requirements-decomposer.md`. The ideation skill stops at the requirements doc. `/stridify` itself ships with a four-layer resilience model: a preflight advisory when a doc enumerates more than 3 surfaces under `## Decomposition seams`, an optional `--goal <name|index>` flag for per-surface dispatch (consumes a `## Decomposition seams` section, partitioning a many-surface doc into one dispatch per surface), a bounded subagent-dispatch retry (3 attempts with ~30s / ~90s backoff on HTTP 529 / network / "overloaded" failures), and a fallback that writes the assembled prompt to a sibling `*-decomposer-prompt.md` file on retry exhaustion. The Stride API POST is not retried; the user re-invokes on a 4xx/5xx. None of this changes the ideation contract — it is downstream behavior.
 - **Filename generation** — see `lib/filename.sh`. The skill defers to `sti_unique_path` and never computes filenames itself.

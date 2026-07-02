@@ -198,7 +198,7 @@ The seven hard-gated sections appear above the three optional ones (`Sketch`, `O
 
 **Decomposition seams (optional, freeform).** If the conversation surfaced that the work splits across multiple independent surfaces — separate plugins, separate services, separate repos that ship on their own cadences — append a freeform `## Decomposition seams` section after the optional sections. List each surface as a numbered markdown item with a bold name, e.g. `1. **Kanban app** — owns the JSON contract`, `2. **stride plugin** — adapter for the reference workflow`. The section is freeform and the ideation skill does NOT gate it. Its downstream consumer is `/stridify --goal <name|index>`: when a requirements doc has many surfaces, the user can run `/stridify` once per surface (`/stridify <path> --goal 1`, `/stridify <path> --goal 2`, …) to reduce per-dispatch prompt size and the blast radius of a single subagent failure. `/stridify` also prints a one-line preflight advisory suggesting `--goal` when the section enumerates more than 3 surfaces. Producing a Decomposition seams section here is the natural way for the user to discover the partitioning flag.
 
-**Under `profile=lean-startup` only**, append one more optional section after `## Open questions` — `## MVP / Validation experiment` — produced by the Round 5 MVP-design batch. Its sub-fields, in order:
+**Under `profile=lean-startup` only**, append one more optional section after `## Design challenge` — `## MVP / Validation experiment` — produced by the Round 5 MVP-design batch. Its sub-fields, in order:
 
 - **Riskiest assumption being tested:** quote the `(R)`-marked entry from Assumptions verbatim.
 - **Experiment design:** what to build, fake, or measure to produce the validating signal.

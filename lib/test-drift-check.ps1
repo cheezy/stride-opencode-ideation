@@ -1,51 +1,186 @@
-# PowerShell mirror of test-drift-check.sh — exercises drift_check.py
-# against in-sync and drifted batch JSON inputs.
+# PowerShell mirror of test-drift-check.sh — unit tests for lib/drift_check.py.
+#
+# Full-parity port: every assertion in test-drift-check.sh has a 1:1
+# counterpart here, with the same case labels in the same order.
+#
+# Run:
+#   pwsh -File lib/test-drift-check.ps1
+#
+# Exits 0 if all tests pass, non-zero otherwise.
 
 Set-StrictMode -Version Latest
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DriftChecker = Join-Path $ScriptDir 'drift_check.py'
+$Drift = Join-Path $ScriptDir 'drift_check.py'
 
 $script:PASS = 0
 $script:FAIL = 0
-function Pass($m) { $script:PASS++; Write-Host "  PASS  $m" }
-function Fail($m, $d = '') { $script:FAIL++; Write-Host "  FAIL  $m"; if ($d) { Write-Host "        $d" } }
+function Pass([string]$msg) { $script:PASS++; Write-Host "  PASS  $msg" }
+function Fail([string]$msg, [string]$detail = '') {
+    $script:FAIL++
+    Write-Host "  FAIL  $msg"
+    if ($detail) { Write-Host "        $detail" }
+}
 
 Write-Host 'test-drift-check.ps1 — exercises drift_check.py'
 Write-Host ''
 
-# Set up a temp dir with a source doc + a batch JSON whose source_spec_sha256
-# matches the source doc's actual SHA-256.
-$tmpDir = New-Item -ItemType Directory -Path (Join-Path ([System.IO.Path]::GetTempPath()) "sti-drift-$(Get-Random)") -Force
+$tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "sti-drift-$(Get-Random)"
+New-Item -ItemType Directory -Path $tmpDir | Out-Null
+
+$errFile = Join-Path $tmpDir 'last.err'
+
+function Get-LastErr {
+    if (Test-Path -LiteralPath $errFile) {
+        $raw = Get-Content -LiteralPath $errFile -Raw
+        if ($null -ne $raw) { return $raw }
+    }
+    return ''
+}
+
+function Assert-Exit([string]$label, [string]$fixture, [int]$expected) {
+    & python3 $Drift $fixture 2> $errFile | Out-Null
+    $actual = $LASTEXITCODE
+    if ($actual -eq $expected) {
+        Pass $label
+    } else {
+        Fail $label "expected exit $expected, got $actual; stderr: $(Get-LastErr)"
+    }
+}
+
+function Assert-ExitWithMsg([string]$label, [string]$fixture, [int]$expected, [string]$needle) {
+    & python3 $Drift $fixture 2> $errFile | Out-Null
+    $actual = $LASTEXITCODE
+    if ($actual -ne $expected) {
+        Fail $label "expected exit $expected, got $actual; stderr: $(Get-LastErr)"
+        return
+    }
+    if ((Get-LastErr).Contains($needle)) {
+        Pass $label
+    } else {
+        Fail $label "expected substring: $needle; actual stderr: $(Get-LastErr)"
+    }
+}
+
 try {
-    $srcPath = Join-Path $tmpDir.FullName 'requirements.md'
-    Set-Content -LiteralPath $srcPath -Value "# Test`n`n## Goal`nA" -Encoding UTF8
+    # --- fixture: a known source doc + its real SHA --------------------------
+    # The source doc lives BESIDE the batch JSON and is referenced RELATIVELY:
+    # drift_check.py resolves relative source_spec values against the batch
+    # JSON's directory. The SHA is computed with Get-FileHash on the file
+    # actually written (Set-Content appends a trailing newline — never hash an
+    # in-memory string).
 
-    $sha = (Get-FileHash -LiteralPath $srcPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $srcPath = Join-Path $tmpDir 'requirements.md'
+    Set-Content -LiteralPath $srcPath -Encoding UTF8 -Value @'
+# Fake requirements doc
 
-    $batchPath = Join-Path $tmpDir.FullName 'batch.json'
-    $inSync = @{
-        source_spec = $srcPath
-        source_spec_sha256 = $sha
-        goals = @(@{ title = 'G'; type = 'goal'; tasks = @(@{ title = 'T'; type = 'work' }) })
-    } | ConvertTo-Json -Depth 5
-    Set-Content -LiteralPath $batchPath -Value $inSync -Encoding UTF8
+## Problem
+test
+'@
 
-    # Stage 1: in-sync hash -> exit 0.
-    & python3 $DriftChecker $batchPath 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { Pass "in-sync hash returns exit 0" } else { Fail "in-sync hash should return 0" "rc=$LASTEXITCODE" }
+    $realSha = (Get-FileHash -LiteralPath $srcPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
-    # Stage 2: bump the source doc so its SHA differs -> drift detected.
-    Add-Content -LiteralPath $srcPath -Value "`nNew line" -Encoding UTF8
-    & python3 $DriftChecker $batchPath 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 1) { Pass "drift detected when source modified" } else { Fail "drift should return exit 1" "rc=$LASTEXITCODE" }
+    # --- no drift: matching SHA ----------------------------------------------
 
-    # Stage 3: malformed batch JSON -> exit 2 (error).
-    Set-Content -LiteralPath $batchPath -Value 'not json' -Encoding UTF8
-    & python3 $DriftChecker $batchPath 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 2) { Pass "malformed batch returns exit 2" } else { Fail "malformed batch should return 2" "rc=$LASTEXITCODE" }
+    $noDrift = Join-Path $tmpDir 'no_drift.json'
+    Set-Content -LiteralPath $noDrift -Encoding UTF8 -Value @"
+{
+  "source_spec": "requirements.md",
+  "source_spec_sha256": "$realSha",
+  "decomposition_notes": "",
+  "goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "work"}]}]
+}
+"@
+    Assert-Exit 'no drift: matching SHA exits 0 silently' $noDrift 0
+
+    # Verify stderr is empty on no-drift
+    if ((Get-LastErr).Length -gt 0) {
+        Fail 'no drift: stderr should be empty' (Get-LastErr)
+    } else {
+        Pass 'no drift: stderr is empty'
+    }
+
+    # --- drift: mismatched SHA ------------------------------------------------
+
+    $driftJson = Join-Path $tmpDir 'drift.json'
+    Set-Content -LiteralPath $driftJson -Encoding UTF8 -Value @'
+{
+  "source_spec": "requirements.md",
+  "source_spec_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "decomposition_notes": "",
+  "goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "work"}]}]
+}
+'@
+    Assert-ExitWithMsg 'drift: mismatched SHA exits 1 with DRIFT DETECTED message' `
+        $driftJson 1 'DRIFT DETECTED'
+
+    # --- drift: stderr names both stamped and recomputed SHA -------------------
+
+    $lastErr = Get-LastErr
+    if ($lastErr.Contains('stamped SHA-256:') -and $lastErr.Contains('recomputed SHA-256:')) {
+        Pass 'drift: stderr names both stamped and recomputed SHA values'
+    } else {
+        Fail 'drift: stderr missing stamped/recomputed labels' $lastErr
+    }
+
+    # --- absent source_spec: hand-written-JSON path proceeds silently ----------
+
+    $noSourceSpec = Join-Path $tmpDir 'no_source_spec.json'
+    Set-Content -LiteralPath $noSourceSpec -Encoding UTF8 -Value @'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "work"}]}]}
+'@
+    Assert-Exit 'absent source_spec: exits 0 (hand-written path)' $noSourceSpec 0
+    if ((Get-LastErr).Length -gt 0) {
+        Fail 'absent source_spec: stderr should be empty' (Get-LastErr)
+    } else {
+        Pass 'absent source_spec: stderr is empty'
+    }
+
+    # --- present source_spec but absent SHA: proceed silently ------------------
+
+    $noSha = Join-Path $tmpDir 'no_sha.json'
+    Set-Content -LiteralPath $noSha -Encoding UTF8 -Value @'
+{
+  "source_spec": "requirements.md",
+  "goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "work"}]}]
+}
+'@
+    Assert-Exit 'source_spec present but SHA absent: exits 0 (no baseline)' $noSha 0
+
+    # --- source_spec points at a missing file ----------------------------------
+
+    $missingSource = Join-Path $tmpDir 'missing_source.json'
+    Set-Content -LiteralPath $missingSource -Encoding UTF8 -Value @'
+{
+  "source_spec": "does_not_exist.md",
+  "source_spec_sha256": "abcdef",
+  "goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "work"}]}]
+}
+'@
+    Assert-ExitWithMsg 'missing source_spec file: exits 2 with resolution error' `
+        $missingSource 2 'could not be resolved'
+
+    # --- malformed batch JSON itself --------------------------------------------
+
+    $bad = Join-Path $tmpDir 'bad.json'
+    Set-Content -LiteralPath $bad -Encoding UTF8 -Value 'not json'
+    Assert-ExitWithMsg 'malformed batch JSON: exits 2 with read/parse error' `
+        $bad 2 'could not read batch JSON'
+
+    # --- source_spec given as absolute path -------------------------------------
+
+    $absSource = Join-Path $tmpDir 'abs_source.json'
+    $srcPathJson = $srcPath.Replace('\', '/')
+    Set-Content -LiteralPath $absSource -Encoding UTF8 -Value @"
+{
+  "source_spec": "$srcPathJson",
+  "source_spec_sha256": "$realSha",
+  "goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "work"}]}]
+}
+"@
+    Assert-Exit 'absolute source_spec path resolves correctly' $absSource 0
 } finally {
-    Remove-Item -Recurse -Force $tmpDir.FullName -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
 }
 
 Write-Host ''

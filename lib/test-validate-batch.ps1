@@ -1,75 +1,244 @@
-# PowerShell mirror of test-validate-batch.sh — exercises validate_batch.py
-# against known-good and known-broken JSON inputs.
+# PowerShell mirror of test-validate-batch.sh — unit tests for
+# lib/validate_batch.py.
+#
+# Each test feeds a fixture JSON document to the validator and asserts the
+# expected outcome (zero exit + no stderr for valid docs; non-zero exit with
+# a matching error substring for invalid docs).
+#
+# Full-parity port: every assertion in test-validate-batch.sh has a 1:1
+# counterpart here, with the same case labels in the same order. Error
+# substrings contain []-style brackets, so matching uses ordinal .Contains()
+# rather than -match/-like.
+#
+# Run:
+#   pwsh -File lib/test-validate-batch.ps1
+#
+# Exits 0 on success, non-zero on failure. Prints one-line per-test status.
 
 Set-StrictMode -Version Latest
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$PluginRoot = Split-Path -Parent $ScriptDir
 $Validator = Join-Path $ScriptDir 'validate_batch.py'
 
 $script:PASS = 0
 $script:FAIL = 0
-function Pass($m) { $script:PASS++; Write-Host "  PASS  $m" }
-function Fail($m, $d = '') { $script:FAIL++; Write-Host "  FAIL  $m"; if ($d) { Write-Host "        $d" } }
+function Pass([string]$msg) { $script:PASS++; Write-Host "  PASS  $msg" }
+function Fail([string]$msg, [string]$detail = '') {
+    $script:FAIL++
+    Write-Host "  FAIL  $msg"
+    if ($detail) { Write-Host "        $detail" }
+}
 
 Write-Host 'test-validate-batch.ps1 — exercises validate_batch.py'
 Write-Host ''
 
-function Invoke-Validator([string]$JsonText) {
-    $tmp = New-TemporaryFile
-    Set-Content -LiteralPath $tmp.FullName -Value $JsonText -Encoding UTF8
-    $errFile = New-TemporaryFile
-    $stdout = & python3 $Validator $tmp.FullName 2>$errFile.FullName
-    $rc = $LASTEXITCODE
-    $errText = Get-Content -Raw -LiteralPath $errFile.FullName -ErrorAction SilentlyContinue
-    Remove-Item -Force $tmp.FullName, $errFile.FullName -ErrorAction SilentlyContinue
-    return @{ rc = $rc; stderr = $errText }
+$TMP = Join-Path ([System.IO.Path]::GetTempPath()) "sti-validate-$(Get-Random)"
+New-Item -ItemType Directory -Path $TMP | Out-Null
+
+$errFile = Join-Path $TMP 'last.err'
+
+function Get-LastErr {
+    if (Test-Path -LiteralPath $errFile) {
+        $raw = Get-Content -LiteralPath $errFile -Raw
+        if ($null -ne $raw) { return $raw }
+    }
+    return ''
 }
 
-# Stage 1: a well-formed minimal batch passes.
-$ok = @'
-{"goals": [{"title": "Test goal", "type": "goal", "tasks": [{"title": "T1", "type": "work"}]}]}
+function Assert-Ok([string]$label, [string]$fixture) {
+    # Validator must exit 0 with no stderr output.
+    & python3 $Validator $fixture 2> $errFile | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        if ((Get-LastErr).Length -eq 0) {
+            Pass $label
+        } else {
+            Fail $label "unexpected stderr: $(Get-LastErr)"
+        }
+    } else {
+        Fail $label "exit code != 0; stderr: $(Get-LastErr)"
+    }
+}
+
+function Assert-FailsWith([string]$label, [string]$fixture, [string]$needle) {
+    # Validator must exit non-zero AND stderr must contain the substring.
+    & python3 $Validator $fixture 2> $errFile | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Fail $label 'expected exit != 0 but got 0'
+        return
+    }
+    if ((Get-LastErr).Contains($needle)) {
+        Pass $label
+    } else {
+        Fail $label "expected substring: $needle; actual stderr: $(Get-LastErr)"
+    }
+}
+
+function Write-Fixture([string]$name, [string]$content) {
+    $path = Join-Path $TMP $name
+    Set-Content -LiteralPath $path -Encoding UTF8 -Value $content
+    return $path
+}
+
+try {
+    # --- (a) parse_error -------------------------------------------------------
+
+    $f = Write-Fixture 'parse_error.json' '{ this is not json'
+    Assert-FailsWith '(a) parse error — invalid JSON exits with parse failure' `
+        $f 'JSON parse failed'
+
+    # --- (b) wrong_root_key ----------------------------------------------------
+
+    $f = Write-Fixture 'wrong_root_tasks.json' '{"tasks": [{"title": "x"}]}'
+    Assert-FailsWith "(b) wrong root key 'tasks' — dedicated error message" `
+        $f "root key 'tasks' is the most common batch-API mistake"
+
+    $f = Write-Fixture 'wrong_root_batch.json' '{"batch": []}'
+    Assert-FailsWith "(b) wrong root key 'batch' — named in error" `
+        $f "missing the required 'goals' array"
+
+    # --- (c) empty_goals -------------------------------------------------------
+
+    $f = Write-Fixture 'empty_goals.json' '{"goals": []}'
+    Assert-FailsWith '(c) empty goals array exits with under-specification hint' `
+        $f 'empty array'
+
+    $f = Write-Fixture 'goals_not_array.json' '{"goals": {"title": "oops"}}'
+    Assert-FailsWith '(c) goals as object — must be an array' `
+        $f 'must be an array'
+
+    # --- (d) goal_missing_field ------------------------------------------------
+
+    $f = Write-Fixture 'missing_title.json' '{"goals": [{"type": "goal", "tasks": []}]}'
+    Assert-FailsWith '(d) goal missing title — names the field' `
+        $f "goals[0] is missing required field 'title'"
+
+    $f = Write-Fixture 'missing_tasks.json' '{"goals": [{"title": "T", "type": "goal"}]}'
+    Assert-FailsWith '(d) goal missing tasks — names the field' `
+        $f "goals[0] is missing required field 'tasks'"
+
+    $f = Write-Fixture 'empty_tasks.json' '{"goals": [{"title": "T", "type": "goal", "tasks": []}]}'
+    Assert-FailsWith '(d) goal with empty tasks array fails' `
+        $f 'goals[0].tasks is empty'
+
+    # --- (e) bad_dependency_index ---------------------------------------------
+
+    $f = Write-Fixture 'dep_out_of_range.json' @'
+{
+  "goals": [
+    {
+      "title": "Test goal",
+      "type": "goal",
+      "tasks": [
+        {"title": "First", "type": "work", "dependencies": []},
+        {"title": "Second", "type": "work", "dependencies": [5]}
+      ]
+    }
+  ]
+}
 '@
-$r = Invoke-Validator $ok
-if ($r.rc -eq 0) { Pass "well-formed batch accepted" } else { Fail "well-formed batch rejected" $r.stderr }
+    Assert-FailsWith '(e) dependency index out of range — names the failing path' `
+        $f 'goals[0].tasks[1].dependencies references index 5 but goal only has 2 tasks'
 
-# Stage 2: malformed JSON triggers parse_error.
-$r = Invoke-Validator 'not json at all {{'
-if ($r.rc -ne 0 -and ($r.stderr -match 'parse|JSON')) { Pass "parse_error reported on bad JSON" } else { Fail "parse_error not detected" $r.stderr }
-
-# Stage 3: wrong root key (tasks instead of goals) reports the common mistake.
-$wrongRoot = '{"tasks": [{"title": "x", "type": "work"}]}'
-$r = Invoke-Validator $wrongRoot
-if ($r.rc -ne 0 -and ($r.stderr -match "(?i)root.*key|tasks|goals")) {
-    Pass "wrong_root_key detected"
-} else {
-    Fail "wrong_root_key not detected" $r.stderr
+    $f = Write-Fixture 'dep_forward_ref.json' @'
+{
+  "goals": [
+    {
+      "title": "Test goal",
+      "type": "goal",
+      "tasks": [
+        {"title": "First", "type": "work", "dependencies": [1]},
+        {"title": "Second", "type": "work", "dependencies": []}
+      ]
+    }
+  ]
 }
-
-# Stage 4: empty goals array.
-$r = Invoke-Validator '{"goals": []}'
-if ($r.rc -ne 0 -and ($r.stderr -match "empty|goals")) { Pass "empty_goals detected" } else { Fail "empty_goals not detected" $r.stderr }
-
-# Stage 5: goal missing required field (title).
-$missingField = '{"goals": [{"type": "goal", "tasks": []}]}'
-$r = Invoke-Validator $missingField
-if ($r.rc -ne 0 -and ($r.stderr -match "title|required|missing")) {
-    Pass "goal_missing_field detected"
-} else {
-    Fail "goal_missing_field not detected" $r.stderr
-}
-
-# Stage 6: bad dependency index (forward reference).
-$badDep = @'
-{"goals": [{"title": "G", "type": "goal", "tasks": [
-    {"title": "T1", "type": "work", "dependencies": [5]}
-]}]}
 '@
-$r = Invoke-Validator $badDep
-if ($r.rc -ne 0 -and ($r.stderr -match "dependency|dependencies|index|references")) {
-    Pass "bad_dependency_index detected"
-} else {
-    Fail "bad_dependency_index not detected" $r.stderr
+    Assert-FailsWith '(e) forward-reference dependency fails' `
+        $f 'must point to an earlier sibling'
+
+    $f = Write-Fixture 'dep_self_ref.json' @'
+{
+  "goals": [
+    {
+      "title": "Test goal",
+      "type": "goal",
+      "tasks": [
+        {"title": "First", "type": "work", "dependencies": [0]}
+      ]
+    }
+  ]
+}
+'@
+    Assert-FailsWith '(e) self-reference dependency fails' `
+        $f 'must point to an earlier sibling'
+
+    $f = Write-Fixture 'dep_negative.json' @'
+{
+  "goals": [
+    {
+      "title": "Test goal",
+      "type": "goal",
+      "tasks": [
+        {"title": "First", "type": "work", "dependencies": [-1]}
+      ]
+    }
+  ]
+}
+'@
+    Assert-FailsWith '(e) negative dependency index fails' `
+        $f 'is negative'
+
+    # --- happy paths -----------------------------------------------------------
+
+    $f = Write-Fixture 'valid_minimal.json' @'
+{
+  "decomposition_notes": "Single goal; no cross-goal deps.",
+  "goals": [
+    {
+      "title": "Minimal goal",
+      "type": "goal",
+      "tasks": [
+        {"title": "First task", "type": "work", "dependencies": []}
+      ]
+    }
+  ]
+}
+'@
+    Assert-Ok 'valid minimal document with one goal and one task' $f
+
+    $f = Write-Fixture 'valid_chained_deps.json' @'
+{
+  "goals": [
+    {
+      "title": "Chained deps",
+      "type": "goal",
+      "tasks": [
+        {"title": "First", "type": "work", "dependencies": []},
+        {"title": "Second", "type": "work", "dependencies": [0]},
+        {"title": "Third", "type": "work", "dependencies": [0, 1]}
+      ]
+    }
+  ]
+}
+'@
+    Assert-Ok 'valid document with chained sibling dependencies' $f
+
+    $f = Write-Fixture 'valid_string_dep.json' @'
+{
+  "goals": [
+    {
+      "title": "String identifier dep",
+      "type": "goal",
+      "tasks": [
+        {"title": "First", "type": "work", "dependencies": ["W47"]}
+      ]
+    }
+  ]
+}
+'@
+    Assert-Ok 'valid: string identifier dependencies are not bounds-checked' $f
+} finally {
+    Remove-Item -Recurse -Force $TMP -ErrorAction SilentlyContinue
 }
 
 Write-Host ''

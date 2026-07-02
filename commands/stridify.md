@@ -10,7 +10,7 @@ Read a stride-ideation requirements markdown document, decompose it into a Strid
 
 The user's invocation arguments are available as `$ARGUMENTS`. Parse the requirements-doc path and the optional `--goal <name|index>` flag out of `$ARGUMENTS` per Step 1. The protocol contract for decomposition lives in the `stride-ideation` skill and the requirements-decomposer custom agent — this command defers to them and never reimplements the decomposition methodology.
 
-When you need to run shell, execute it with `shell`, one command at a time, checking the result before proceeding.
+When you need to run shell, execute it with `bash`, one command at a time, checking the result before proceeding.
 
 ## What to do
 
@@ -29,11 +29,11 @@ The user invoked you with `$ARGUMENTS`. Parse in this fixed order — `--goal` f
 
 Before doing any expensive work, the command must confirm the input is a real, parseable requirements doc produced by (or compatible with) `/ideate`. Run these checks in order; any failure prints a one-line error and exits non-zero:
 
-1. **File exists and is a regular file.** Use `read_file` or `shell` with `test -f` to confirm. If missing, print *"stride-ideation: requirements doc not found at `<REQUIREMENTS_PATH>`"* and stop.
+1. **File exists and is a regular file.** Use `read` or `bash` with `test -f` to confirm. If missing, print *"stride-ideation: requirements doc not found at `<REQUIREMENTS_PATH>`"* and stop.
 
 2. **Filename family matches.** The path SHOULD end in `-requirements.md`. If it does not, warn but proceed — the slug-extraction step below may still succeed for paths produced by older versions of the plugin, and the section-validation pass below is the authoritative check anyway.
 
-3. **All seven hard-gated sections are present.** Use `grep_search` to verify that the file contains a level-2 heading for each of: `Problem`, `Goal`, `Outcome`, `Assumptions`, `Constraints`, `Non-goals`, `Success metrics`. Order is not enforced (the doc template orders Problem before Goal, but a hand-edited doc may differ). If any heading is missing, print:
+3. **All seven hard-gated sections are present.** Use `grep` to verify that the file contains a level-2 heading for each of: `Problem`, `Goal`, `Outcome`, `Assumptions`, `Constraints`, `Non-goals`, `Success metrics`. Order is not enforced (the doc template orders Problem before Goal, but a hand-edited doc may differ). If any heading is missing, print:
 
    > *"stride-ideation: requirements doc is missing required section(s): `<list>`. Either re-run `/ideate --continue <path>` to fill them in, or hand-edit the doc to include the missing sections."*
 
@@ -128,7 +128,7 @@ fi
 
 ### Step 3: Preflight auth from `.stride_auth.md`
 
-Read auth BEFORE the expensive subagent dispatch so a misconfigured `.stride_auth.md` fails fast without first burning a decomposer pass and writing a batch JSON that can't be shipped. Locate `.stride_auth.md` (the convention is `$CLAUDE_PROJECT_DIR/.stride_auth.md` — the same file the Stride orchestrator reads). Invoke `lib/read_auth.py` via `shell` and source its output:
+Read auth BEFORE the expensive subagent dispatch so a misconfigured `.stride_auth.md` fails fast without first burning a decomposer pass and writing a batch JSON that can't be shipped. Locate `.stride_auth.md` (the convention is `$CLAUDE_PROJECT_DIR/.stride_auth.md` — the same file the Stride orchestrator reads). Invoke `lib/read_auth.py` via `bash` and source its output:
 
 ```bash
 AUTH_FILE="${CLAUDE_PROJECT_DIR:-$PWD}/.stride_auth.md"
@@ -160,7 +160,7 @@ If `lib/read_auth.py` exits non-zero, surface its stderr (which is engineered to
 
 ### Step 4: Inherit the session timestamp and slug
 
-Source `lib/filename.sh` and extract the inherited values from `REQUIREMENTS_PATH`, running each command via `shell`:
+Source `lib/filename.sh` and extract the inherited values from `REQUIREMENTS_PATH`, running each command via `bash`:
 
 ```bash
 . <plugin-root>/lib/filename.sh
@@ -218,9 +218,9 @@ Do NOT use the raw `$REQUIREMENTS_PATH` as `SOURCE_SPEC` — it depends on the u
 
 ### Step 7: Dispatch the `requirements-decomposer` custom agent
 
-Read the full content of the requirements doc and dispatch the requirements-decomposer custom agent. The dispatch is wrapped in a **bounded retry loop** so the command survives transient Anthropic API capacity spikes (HTTP 529 Overloaded). Subagent dispatch has no side effects on the Stride API — a retried call cannot double-create anything — so retrying it is safe in a way that retrying the Step 9 POST is not.
+Read the full content of the requirements doc and dispatch the requirements-decomposer custom agent via an `@requirements-decomposer` mention. The dispatch is wrapped in a **bounded retry loop** so the command survives transient Anthropic API capacity spikes (HTTP 529 Overloaded). Subagent dispatch has no side effects on the Stride API — a retried call cannot double-create anything — so retrying it is safe in a way that retrying the Step 9 POST is not.
 
-Dispatch the requirements-decomposer custom agent with a prompt consisting of the requirements doc text, fenced inside a "Requirements document:" block — the only input the subagent has access to.
+Dispatch the requirements-decomposer custom agent (an `@requirements-decomposer` mention) with a prompt consisting of the requirements doc text, fenced inside a "Requirements document:" block — the only input the subagent has access to.
 
 The subagent receives the requirements doc as its entire input (no codebase access, no Stride API access, no clarifying-question loop). Its prompt at `agents/requirements-decomposer.md` documents the decomposition methodology, the canonical batch JSON shape, and the output contract.
 
@@ -251,7 +251,7 @@ while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
   # and floods stderr on retry. The attempt number is the only signal needed.
   echo "stride-ideation: dispatching requirements-decomposer (attempt $ATTEMPT/$MAX_ATTEMPTS)" >&2
 
-  RESULT="$(dispatch requirements-decomposer custom agent with prompt=$DECOMPOSER_PROMPT)"
+  RESULT="$(dispatch @requirements-decomposer with prompt=$DECOMPOSER_PROMPT)"
 
   case "$(classify "$RESULT")" in
     success)
@@ -362,7 +362,7 @@ never enters the decomposer prompt (the subagent has no API access), so there
 is no token in the saved prompt or the recovery README.
 ```
 
-**(7.5c) Write the file and print the recovery summary.** Use the `write_file` tool to write the file. On a `write_file` failure (disk full, permission denied, etc.) surface the error verbatim AND still print the prompt body to stderr — losing the in-memory prompt to a swallowed `write_file` error is the worst outcome here, far worse than a noisy stderr dump.
+**(7.5c) Write the file and print the recovery summary.** Use the `write` tool to write the file. On a `write` failure (disk full, permission denied, etc.) surface the error verbatim AND still print the prompt body to stderr — losing the in-memory prompt to a swallowed `write` error is the worst outcome here, far worse than a noisy stderr dump.
 
 After the file is written, print a concise terminal summary that names the saved-prompt path and the next concrete action:
 
@@ -444,7 +444,7 @@ This is the ONLY mutation made to the subagent's output — every other field (p
 
 **(8c) Verify path uniqueness and write the file.** Re-run `sti_unique_path` with the same arguments as Step 5 to confirm `TARGET_PATH` is still untaken. If a colliding file appeared between Step 5 and now (concurrent process, manual filesystem action), use the freshly resolved path — never overwrite an existing file.
 
-Use the `write_file` tool to write the JSON document to the resolved target path. The directory containing `REQUIREMENTS_PATH` already exists (it housed the source doc), so no `mkdir -p` is needed.
+Use the `write` tool to write the JSON document to the resolved target path. The directory containing `REQUIREMENTS_PATH` already exists (it housed the source doc), so no `mkdir -p` is needed.
 
 **(8d) Commit.**
 

@@ -5,6 +5,12 @@ All notable changes to the Stride Ideation extension for OpenCode are documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed — wrong OpenCode tool names and implicit subagent dispatch (D99)
+
+The AGENTS.md Tool Name Mapping table pointed five of seven rows at tools OpenCode doesn't have (`read_file`, `grep_search`, `shell`, `edit_file`, `write_file`), and the wrong vocabulary had propagated into both command bodies and the requirements-reviewer agent body — the literal strings an executing agent would try to invoke, so the two entry-point commands could not be followed as written. Everything now uses the real OpenCode names (`read`, `grep`, `glob`, `bash`, `edit`, `write`), proven by the port's own agent frontmatter; prose uses of the word "shell" and the historical CHANGELOG vocabulary record are untouched. The commands' dispatch instructions now name the at-mention mechanism explicitly (`@requirements-reviewer` / `@requirements-decomposer`), mirroring the AGENTS.md workflow diagram.
+
 ## [0.3.0] - 2026-06-26
 
 ### Added

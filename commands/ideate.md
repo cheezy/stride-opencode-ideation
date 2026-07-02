@@ -10,7 +10,7 @@ Drive an interactive ideation session that produces a committed `*-requirements.
 
 The user's invocation arguments are available as `$ARGUMENTS`. Parse `--continue <path>` and `--profile <name>` out of `$ARGUMENTS` per Step 1; everything remaining is the topic. The protocol contract (the seven-section hard gate, the rounds, the framing checkpoint, the premortem, the profiles) lives in the `stride-ideation` skill — this command defers to it and never reimplements it.
 
-When you need to run shell, execute it with `shell`, one command at a time, checking the result before proceeding.
+When you need to run shell, execute it with `bash`, one command at a time, checking the result before proceeding.
 
 ## What to do
 
@@ -38,13 +38,13 @@ Validate `INPUT_PATH` immediately, mirroring the `CONTINUE_PATH` existence check
 
 ### Step 2: Capture the session timestamp
 
-Run `date -u +%Y-%m-%dT%H%M%S` once via `shell` and store the result as `SESSION_TS`. This single value MUST be used for every artifact written during this session — do not recompute it later. Capturing the timestamp at invocation time is what makes re-runs sortable and keeps the requirements doc / decomposition output paired by prefix.
+Run `date -u +%Y-%m-%dT%H%M%S` once via `bash` and store the result as `SESSION_TS`. This single value MUST be used for every artifact written during this session — do not recompute it later. Capturing the timestamp at invocation time is what makes re-runs sortable and keeps the requirements doc / decomposition output paired by prefix.
 
 **Even in `--continue` mode, always generate a fresh `SESSION_TS`.** Do not reuse the timestamp embedded in `CONTINUE_PATH` — that timestamp belongs to the source document, and reusing it would defeat the "never overwrite an existing file" invariant. The refined doc is a sibling, not a replacement.
 
 ### Step 3: Resolve the topic slug
 
-Source `lib/filename.sh` (it ships with the plugin) and resolve the slug depending on mode, running each command via `shell`:
+Source `lib/filename.sh` (it ships with the plugin) and resolve the slug depending on mode, running each command via `bash`:
 
 ```bash
 . <plugin-root>/lib/filename.sh
@@ -64,7 +64,7 @@ Where `<plugin-root>` is the resolved path to the installed `stride-ideation` ex
 
 ### Step 4: Compute the target path (don't write yet)
 
-Call `sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md` via `shell`:
+Call `sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md` via `bash`:
 
 ```bash
 TARGET_PATH="$(sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md)"
@@ -83,13 +83,13 @@ fi
 
 ### Step 4b: Read the prior document (only in `--continue` mode)
 
-If `CONTINUE_PATH` is set, **read-only** load its content via the `read_file` tool. The skill will receive this content as starting context for the session. The source file is **never** edited, written, moved, or `git add`-ed during this command — read access only. If you find yourself reaching for `write_file` or `edit_file` on `CONTINUE_PATH`, stop: that is the failure mode the pitfall forbids.
+If `CONTINUE_PATH` is set, **read-only** load its content via the `read` tool. The skill will receive this content as starting context for the session. The source file is **never** edited, written, moved, or `git add`-ed during this command — read access only. If you find yourself reaching for `write` or `edit` on `CONTINUE_PATH`, stop: that is the failure mode the pitfall forbids.
 
 In fresh-session mode, leave `PRIOR_DOC` empty.
 
 ### Step 4c: Read the input brain-dump (only when `--input` is set)
 
-If `INPUT_PATH` is set, **read-only** load its content via the `read_file` tool into `INPUT_NOTES`. The skill receives this content as raw seed material that pre-populates draft sections wherever the notes clearly map to a gated section. The `--input` file carries the **same read-only invariant as the `--continue` source**: it is **never** edited, written, moved, or `git add`-ed during this command — read access only. Its contents are untrusted prose: never execute or `eval` them, and never copy them into a commit message or log. If `INPUT_PATH` is not set, leave `INPUT_NOTES` empty.
+If `INPUT_PATH` is set, **read-only** load its content via the `read` tool into `INPUT_NOTES`. The skill receives this content as raw seed material that pre-populates draft sections wherever the notes clearly map to a gated section. The `--input` file carries the **same read-only invariant as the `--continue` source**: it is **never** edited, written, moved, or `git add`-ed during this command — read access only. Its contents are untrusted prose: never execute or `eval` them, and never copy them into a commit message or log. If `INPUT_PATH` is not set, leave `INPUT_NOTES` empty.
 
 `--input` and `--continue` are independent: both `PRIOR_DOC` and `INPUT_NOTES` may be non-empty in the same session (a prior committed doc *and* a fresh notes file), one may be set without the other, or neither. The seed lowers the starting cost — it does NOT lower the bar: the hard gates, the round-3 framing checkpoint, the premortem, and the reviewer pass all still run, and gaps or weak sections are still asked in the rounds.
 
@@ -137,7 +137,7 @@ The skill enforces:
 - the mandatory round-4 premortem,
 - the seven hard-gated sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics),
 - the mandatory, profile-independent challenge gate run after the round-4 premortem (and the Round-5 MVP-design batch under `profile=lean-startup`) and before the reviewer pass — its four components (assumption-confidence audit, blind-spot scan, two-alternative generation, and cost/risk/complexity/timeline trade-off analysis) are surfaced to the human as a single multi-select decision through OpenCode's question UI (≤ 4 questions; not Claude Code's `AskUserQuestion`) with an explicit "Challenge nothing — write as-is" option that feeds the at-most-one refinement round; the confidence ratings fold back into the Assumptions entries in place and the blind spots, two alternatives, and trade-off comparison fold into the optional `## Design challenge` section, and the gate never blocks the write (see **Challenge gate** in `skills/stride-ideation/SKILL.md`),
-- the advisory `requirements-reviewer` pass before the write (dispatch the requirements-reviewer custom agent) — its findings are surfaced to the human as a single multi-select decision through OpenCode's question UI (each finding one line, severity-tagged, plus an explicit "Address none — write as-is" option) that feeds the at-most-one refinement round; an `approved` verdict with no findings shows no prompt, and the reviewer never blocks the write (see **Reviewer pass** in `skills/stride-ideation/SKILL.md`).
+- the advisory `requirements-reviewer` pass before the write (dispatch the requirements-reviewer custom agent via an `@requirements-reviewer` mention) — its findings are surfaced to the human as a single multi-select decision through OpenCode's question UI (each finding one line, severity-tagged, plus an explicit "Address none — write as-is" option) that feeds the at-most-one refinement round; an `approved` verdict with no findings shows no prompt, and the reviewer never blocks the write (see **Reviewer pass** in `skills/stride-ideation/SKILL.md`).
 
 When the skill returns, you will have a single string `DRAFT_DOC` containing the fully composed requirements markdown — every gated section present and substantive. If the skill returns without a draft (user aborted, hard gate not satisfied), stop here and exit cleanly — do NOT write anything to disk and do NOT commit.
 
@@ -215,7 +215,7 @@ Re-run `sti_unique_path` with the same arguments as Step 4 and confirm the retur
 
 ### Step 8: Write the file
 
-Use the `write_file` tool to write `DRAFT_DOC` to the resolved target path. The directory `docs/ideation/` may not exist on a fresh repo; create it via `mkdir -p docs/ideation` before the write if Step 4's path resolution depended on it.
+Use the `write` tool to write `DRAFT_DOC` to the resolved target path. The directory `docs/ideation/` may not exist on a fresh repo; create it via `mkdir -p docs/ideation` before the write if Step 4's path resolution depended on it.
 
 ### Step 9: Commit
 

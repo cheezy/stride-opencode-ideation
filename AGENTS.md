@@ -68,12 +68,12 @@ The skill, command, and agent bodies reference OpenCode tool names directly. Whe
 
 | Other-platform reference | OpenCode Tool |
 |--------------------------|---------------|
-| `Read` | `read_file` |
-| `Grep` | `grep_search` |
+| `Read` | `read` |
+| `Grep` | `grep` |
 | `Glob` | `glob` |
-| `Bash` | `shell` |
-| `Edit` | `edit_file` |
-| `Write` | `write_file` |
+| `Bash` | `bash` |
+| `Edit` | `edit` |
+| `Write` | `write` |
 | `Agent` (subagent dispatch) | `@agent-name` mention |
 
 OpenCode has no first-class "preview pane" question tool, so option comparisons are rendered inline (fenced ASCII blocks or short tables) rather than via a preview field.

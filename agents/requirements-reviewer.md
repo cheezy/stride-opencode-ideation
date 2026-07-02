@@ -27,7 +27,7 @@ A clean document with no substantive issues should return **Approved** with no p
 
 ## What you receive
 
-The caller passes the full text of the draft requirements markdown as input, along with a `profile=<name>` parameter naming the ideation profile under which the draft was produced. The profile is one of `lean`, `product`, `discovery`, or `lean-startup`. If the caller omits the profile, treat it as `lean` — the default behavior. You may use the `read_file` and `grep_search` tools to look up referenced files in the repository if a section names a path or a prior spec — but the primary input is the in-prompt document.
+The caller passes the full text of the draft requirements markdown as input, along with a `profile=<name>` parameter naming the ideation profile under which the draft was produced. The profile is one of `lean`, `product`, `discovery`, or `lean-startup`. If the caller omits the profile, treat it as `lean` — the default behavior. You may use the `read` and `grep` tools to look up referenced files in the repository if a section names a path or a prior spec — but the primary input is the in-prompt document.
 
 The profile gates five conditional checks under **Profile-aware checks** below. The seven section-rubric rows and the cross-section / ambiguity checks run identically under every profile — only the profile-aware checks change.
 

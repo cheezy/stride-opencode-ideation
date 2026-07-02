@@ -5,7 +5,7 @@ All notable changes to the Stride Ideation extension for OpenCode are documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-07-02
 
 ### Added — the six reduced-coverage PowerShell test mirrors brought to full assertion parity (W1504)
 

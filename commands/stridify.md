@@ -6,7 +6,7 @@ description: "End-to-end pipeline from a stride-ideation requirements doc to cre
 
 Read a stride-ideation requirements markdown document, decompose it into a Stride batch JSON (committed to disk for audit), and POST it to the Stride API in a single invocation. The decomposition logic — natural seams, sizing, multi-goal split rule, batch JSON shape — lives in `agents/requirements-decomposer.md`. This command is the surface: it parses the invocation arguments, validates the input, preflights auth, dispatches the subagent, stamps `source_spec` + `source_spec_sha256`, writes and commits the file, then strips local-audit fields, POSTs to `/api/tasks/batch`, and renders the created G/W identifiers.
 
-**Usage:** `/stridify <path-to-requirements.md> [--goal <name|index>]`
+**Usage:** `/stridify <path-to-requirements.md> [--goal <name|index>] [--yes]`
 
 The user's invocation arguments are available as `$ARGUMENTS`. Parse the requirements-doc path and the optional `--goal <name|index>` flag out of `$ARGUMENTS` per Step 1. The protocol contract for decomposition lives in the `stride-ideation` skill and the requirements-decomposer custom agent — this command defers to them and never reimplements the decomposition methodology.
 

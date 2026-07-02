@@ -10,8 +10,8 @@ Two native slash commands drive the workflow. The protocol contract they enforce
 
 | Command | When to use |
 |---------|-------------|
-| `/ideate [<topic>] [--continue <path>] [--profile <lean\|product\|discovery\|lean-startup>]` | Brainstorm and scope a fuzzy idea into a committed requirements markdown doc. Drives the round-based question loop, the round-3 framing checkpoint, the round-4 premortem, and (lean-startup) the round-5 MVP batch. Hard-gated on the seven required sections. Terminal state is the written doc — it does NOT auto-invoke `/stridify`. |
-| `/stridify <path-to-requirements.md> [--goal <name\|index>]` | Decompose a committed requirements doc into Stride tasks and POST them. Validates the seven sections, preflights `.stride_auth.md`, dispatches the requirements-decomposer agent, stamps `source_spec` + `source_spec_sha256`, writes and commits a timestamped batch JSON, then POSTs to `/api/tasks/batch` and renders the created G/W identifiers. |
+| `/ideate [<topic>] [--continue <path>] [--input <path>] [--profile <lean\|product\|discovery\|lean-startup>]` | Brainstorm and scope a fuzzy idea into a committed requirements markdown doc. Drives the round-based question loop, the round-3 framing checkpoint, the round-4 premortem, and (lean-startup) the round-5 MVP batch. Hard-gated on the seven required sections. Terminal state is the written doc — it does NOT auto-invoke `/stridify`. |
+| `/stridify <path-to-requirements.md> [--goal <name\|index>] [--yes]` | Decompose a committed requirements doc into Stride tasks and POST them. Validates the seven sections, preflights `.stride_auth.md`, dispatches the requirements-decomposer agent, stamps `source_spec` + `source_spec_sha256`, writes and commits a timestamped batch JSON, then POSTs to `/api/tasks/batch` and renders the created G/W identifiers. |
 
 `/stridify` is optional — the requirements doc is a deliverable on its own. Run it only when you want the tasks created in Stride.
 
@@ -44,12 +44,12 @@ AGENTS.md -> ./AGENTS.md
 ## Workflow Sequence
 
 ```
-/ideate [topic] [--profile <name>]
+/ideate [topic] [--input <path>] [--profile <name>]
   -> drives the question loop, gates on the seven required sections,
      dispatches @requirements-reviewer, writes and commits the doc
   -> STOP — the committed doc is a valid terminal state
 
-/stridify <path-to-requirements.md> [--goal <name|index>]
+/stridify <path-to-requirements.md> [--goal <name|index>] [--yes]
   -> validates the seven sections, preflights .stride_auth.md,
      dispatches @requirements-decomposer (with bounded retry on
      transient failures), stamps audit metadata, writes and commits

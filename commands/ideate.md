@@ -1,14 +1,14 @@
 ---
-description: "Drive an interactive ideation session that turns a fuzzy idea into a committed requirements markdown document. Supports --continue <path> to refine a prior requirements doc and --profile <lean|product|discovery|lean-startup> to select the round structure and reviewer rubric (default lean = v0.3.0 behavior). Hard-gated by the stride-ideation skill on the seven required sections; terminal state is the written doc (does NOT auto-invoke /stridify)."
+description: "Drive an interactive ideation session that turns a fuzzy idea into a committed requirements markdown document. Supports --continue <path> to refine a prior requirements doc, --input <path> to seed draft sections from a freeform brain-dump file (read-only; never committed), and --profile <lean|product|discovery|lean-startup> to select the round structure and reviewer rubric (default lean = v0.3.0 behavior). Hard-gated by the stride-ideation skill on the seven required sections; terminal state is the written doc (does NOT auto-invoke /stridify)."
 ---
 
 # /ideate
 
 Drive an interactive ideation session that produces a committed `*-requirements.md` document under `docs/ideation/`. The protocol — round-based question batching, hard-gated sections, advisory reviewer pass — is defined in `skills/stride-ideation/SKILL.md`. This command is the surface: it parses the invocation arguments, captures the session timestamp, resolves the slug, drives the skill, and finishes by writing and committing the doc.
 
-**Usage:** `/ideate [<topic>] [--continue <path>] [--profile <lean|product|discovery|lean-startup>]`
+**Usage:** `/ideate [<topic>] [--continue <path>] [--input <path>] [--profile <lean|product|discovery|lean-startup>]`
 
-The user's invocation arguments are available as `$ARGUMENTS`. Parse `--continue <path>` and `--profile <name>` out of `$ARGUMENTS` per Step 1; everything remaining is the topic. The protocol contract (the seven-section hard gate, the rounds, the framing checkpoint, the premortem, the profiles) lives in the `stride-ideation` skill — this command defers to it and never reimplements it.
+The user's invocation arguments are available as `$ARGUMENTS`. Parse `--continue <path>`, `--input <path>`, and `--profile <name>` out of `$ARGUMENTS` per Step 1; everything remaining is the topic. The protocol contract (the seven-section hard gate, the rounds, the framing checkpoint, the premortem, the profiles) lives in the `stride-ideation` skill — this command defers to it and never reimplements it.
 
 When you need to run shell, execute it with `bash`, one command at a time, checking the result before proceeding.
 

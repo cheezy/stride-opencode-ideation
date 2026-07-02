@@ -11,17 +11,21 @@ This extension provides brainstorming and ideation commands for projects that us
 The two native slash commands:
 
 ```text
-/ideate [<topic>] [--continue <path>] [--profile <lean|product|discovery|lean-startup>]
+/ideate [<topic>] [--continue <path>] [--input <path>] [--profile <lean|product|discovery|lean-startup>]
   Interactive ideation session. Drives a Q&A loop with you to produce a
   timestamped requirements markdown doc. Stop here if you only want a spec.
+  --input seeds draft sections from a freeform brain-dump file
+  (read-only; never committed).
 
-/stridify <path-to-requirements.md> [--goal <name|index>]
+/stridify <path-to-requirements.md> [--goal <name|index>] [--yes]
   End-to-end pipeline: validates the requirements doc, preflights auth,
   dispatches the decomposer agent, stamps audit metadata, writes and
   commits a sibling Stride batch JSON, then POSTs it to /api/tasks/batch
   on your Stride instance and renders the created G/W identifiers.
   --goal scopes the dispatch to one surface from the doc's
   ## Decomposition seams section (see "Resilience model" below).
+  --yes (alias --auto-approve) bypasses the preview-and-approval gate
+  for scripted, non-interactive runs.
 ```
 
 `/ideate` is hard-gated on seven required sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics) plus shape requirements on Assumptions (ranked, riskiest marked, premortem-derived) and Success Metrics (both leading and lagging indicators). `/stridify` is gated on a passing structural validation of the decomposer's output before it commits or POSTs anything.

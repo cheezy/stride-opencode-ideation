@@ -5,6 +5,14 @@ All notable changes to the Stride Ideation extension for OpenCode are documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-08-21
+
+Documentation only. Nothing in the skills or the install path changed.
+
+### Fixed
+
+- **`lean` was the one profile in the README's summary line with nothing said about it.** The other three each name what they add; the default was listed bare, so the reader had to work out by subtraction what running without a profile actually gets them. It now states it outright — no profile-specific additions, the shared core alone.
+
 ## [0.4.0] - 2026-07-02
 
 ### Added — the six reduced-coverage PowerShell test mirrors brought to full assertion parity (W1504)

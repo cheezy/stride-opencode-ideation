@@ -19,7 +19,7 @@ Result: **14 ✓, 0 ✗**, `14 passed, 0 failed`.
 
 - **Stage 7: live HTTP POST to a Stride instance.** `lib/run_smoke_test.sh --live <batch.json>` exercises this stage end-to-end (read auth → strip → POST → render real response). It was not run during this capture because the available Stride instance (`https://www.stridelikeaboss.com`) is the human's production workspace, not a dedicated dev environment. The W422 pitfall explicitly warned against testing against prod.
 
-- **Interactive `/ideate` Q&A loop.** The ideation protocol drives a multi-turn question-and-answer conversation via OpenCode's question UI that cannot be exercised from a non-interactive smoke-test runner. Coverage of that flow is a human-driven end-to-end run: `/ideate` in an OpenCode session through to the committed requirements doc, then `/stridify` against it — the command walkthroughs in the top-level `README.md` describe both.
+- **Interactive `/ideate` Q&A loop.** The ideation protocol drives a multi-turn question-and-answer conversation via OpenCode's `question` tool that cannot be exercised from a non-interactive smoke-test runner. Coverage of that flow is a human-driven end-to-end run: `/ideate` in an OpenCode session through to the committed requirements doc, then `/stridify` against it — the command walkthroughs in the top-level `README.md` describe both.
 
 ## How to re-run
 

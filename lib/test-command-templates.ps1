@@ -38,6 +38,10 @@ if (-not (Test-Path (Join-Path $Commands 'ideate.md'))) {
 $ResolverFirst = '# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.'
 $Rule          = '**Every bash call is a fresh shell.**'
 $AlwaysSet     = @('HOME', 'STI_ROOT', 'STI_LIB')
+# OpenCode's @-reference pattern for command templates (1.16); a match naming
+# one of this bundle's agents becomes an agent call at expansion time.
+$FileRef       = '(?<![\w`])@(\.?[^\s`,.]*(?:\.[^\s`,.]+)*)'
+$AgentNames    = @(Get-ChildItem -LiteralPath (Join-Path $Bundle 'agents') -Filter '*.md' | ForEach-Object { $_.BaseName })
 
 function Get-Blocks([string[]]$Lines) {
     $result = @()
@@ -69,6 +73,9 @@ function Get-LintViolations([string]$Path) {
     for ($n = 0; $n -lt $lines.Count; $n++) {
         if ($lines[$n] -match '\$\{?[0-9]') { $out += "${Path}:$($n + 1): dollar-digit sequence (OpenCode rewrites it)" }
         if ($lines[$n].Contains('<plugin-root>')) { $out += "${Path}:$($n + 1): <plugin-root> placeholder" }
+        foreach ($m in [regex]::Matches($lines[$n], $FileRef)) {
+            if ($AgentNames -contains $m.Groups[1].Value) { $out += "${Path}:$($n + 1): bare @$($m.Groups[1].Value) (OpenCode turns it into an agent call at expansion time)" }
+        }
     }
     $ruleCount = ([regex]::Matches($text, [regex]::Escape($Rule))).Count
     if ($ruleCount -ne 1) { $out += "${Path}: the fresh-shell rule appears $ruleCount times, want 1" }
@@ -168,6 +175,13 @@ try {
     Expect-Caught 'lint: catches a value read but never carried forward' 'reads TARGET_PATH' (Plant 'uncarried' ("# Carried forward: none`n" + 'echo "$TARGET_PATH"'))
     Expect-Caught 'lint: catches a carried value with no check' 'has no check' (Plant 'unchecked' ("# Carried forward: SLUG`n" + 'echo "$SLUG"'))
     Expect-Caught 'lint: catches a block with no Carried forward line' 'Carried forward' (Plant 'nocarry' 'echo hi')
+    $atRef = Join-Path $tmp 'atref.md'
+    [System.IO.File]::WriteAllText($atRef, "$Rule`n`nThen dispatch @requirements-decomposer with the prompt.`n")
+    Expect-Caught 'lint: catches a bare @agent reference' 'bare @requirements-decomposer' $atRef
+    $atOk = Join-Path $tmp 'atref-ok.md'
+    [System.IO.File]::WriteAllText($atOk, "$Rule`n`nNever use ``@requirements-decomposer``; call the task tool.`n")
+    if ((Get-LintViolations $atOk).Count -eq 0) { Pass 'lint: a backticked @agent name is left alone' }
+    else { Fail 'lint: a backticked @agent name is left alone' }
     $noRule = Join-Path $tmp 'norule.md'
     [System.IO.File]::WriteAllText($noRule, '```bash' + "`n# Carried forward: none`necho hi`n" + '```' + "`n")
     Expect-Caught 'lint: catches a file without the fresh-shell rule' 'appears 0 times' $noRule

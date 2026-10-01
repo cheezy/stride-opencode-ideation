@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`<plugin-root>` is gone.** Each fragment resolves the helper directory itself: the project install (`.opencode/stride-ideation/lib` at the git toplevel), then the global install, then a `stride-opencode-ideation` checkout — never a path from an argument or the environment, and never a user project's own `lib/`. The saved retry-exhaustion prompt names the resolved absolute directory.
 - **New `lib/test-command-templates.sh`** lints both commands, expands them the way OpenCode does, runs every fragment in a fresh `bash --noprofile --norc -u` chained through its `carry:` lines, and checks the resolver; `lib/test-command-templates.ps1` mirrors the lint. `lib/test-stridify-retry.ps1` now reads its retry-schedule sentinels from `commands/stridify.md` instead of a skill file that does not exist.
 
+### Fixed — commits contain only the artifact, and subagents and questions use OpenCode's real tools (D319)
+
+- **Commits swept up the user's staged work.** `/ideate` Step 9 and `/stridify` Step 8d ran `git add <path>` then a plain `git commit`, which commits everything already staged. Both now commit with the artifact as a pathspec (`git --literal-pathspecs commit -m … -- <path>`), so other staged changes stay staged, and a path containing `*` or a leading `:` matches only itself. New `lib/test-commit-scope.sh` and `.ps1` run the real fragments in repos with unrelated work staged.
+- **Subagents were dispatched by @-mention.** In OpenCode only a user's own prompt turns `@name` into an agent call; a bare `@requirements-decomposer` in `/stridify` was instead resolved when the command expanded, before validation and the auth preflight. The commands, the skill and `AGENTS.md` now say to call the `task` tool with `subagent_type` `requirements-reviewer` / `requirements-decomposer`, and `lib/test-command-templates.sh` / `.ps1` fail on any bare `@<agent>` in a command body.
+- **The question tool is named.** Every "question UI" reference is now OpenCode's `question` tool, with a plain-text fallback for clients that do not provide it; the premortem no longer asks for an "Other" option, which the tool adds itself.
+
 ## [0.4.1] - 2026-08-21
 
 Documentation only. Nothing in the skills or the install path changed.

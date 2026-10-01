@@ -21,7 +21,7 @@ Two native slash commands drive the workflow. The protocol contract they enforce
 
 ## Custom Agents
 
-Two subagents are dispatched by the commands (via `@mention`); they are not invoked directly from a user prompt.
+Two subagents are dispatched by the commands, by calling OpenCode's `task` tool with `subagent_type` set to the agent's file name (`requirements-reviewer`, `requirements-decomposer`); they are not invoked directly from a user prompt, and the commands never dispatch them with an @-mention.
 
 - **requirements-reviewer** — Advisory pass over a draft requirements document. Reports gaps, contradictions, and ambiguous acceptance criteria; **never edits the doc**. Dispatched by `/ideate` after the seven sections have draft content and before the doc is committed.
 - **requirements-decomposer** — Reads a committed requirements document end-to-end and emits a single fenced ```json batch document matching `POST /api/tasks/batch`. Dispatched by `/stridify` before the batch JSON is written and committed. Its only output is the fenced JSON — no prose.
@@ -48,12 +48,12 @@ fixtures/ -> .opencode/stride-ideation/fixtures/
 ```
 /ideate [topic] [--input <path>] [--profile <name>]
   -> drives the question loop, gates on the seven required sections,
-     dispatches @requirements-reviewer, writes and commits the doc
+     dispatches requirements-reviewer (task tool), writes and commits the doc
   -> STOP — the committed doc is a valid terminal state
 
 /stridify <path-to-requirements.md> [--goal <name|index>] [--yes]
   -> validates the seven sections, preflights .stride_auth.md,
-     dispatches @requirements-decomposer (with bounded retry on
+     dispatches requirements-decomposer (task tool; bounded retry on
      transient failures), stamps audit metadata, writes and commits
      the batch JSON, POSTs to /api/tasks/batch, renders the G/W table
 ```
@@ -76,7 +76,8 @@ The skill, command, and agent bodies reference OpenCode tool names directly. Whe
 | `Bash` | `bash` |
 | `Edit` | `edit` |
 | `Write` | `write` |
-| `Agent` (subagent dispatch) | `@agent-name` mention |
+| `Agent` (subagent dispatch) | `task` tool with `subagent_type: "<agent-name>"` (never an `@name` mention) |
+| `AskUserQuestion` | `question` tool; plain-text numbered options when the client does not provide it |
 
 OpenCode has no first-class "preview pane" question tool, so option comparisons are rendered inline (fenced ASCII blocks or short tables) rather than via a preview field.
 

@@ -10,6 +10,8 @@ Read a stride-ideation requirements markdown document, decompose it into a Strid
 
 The user's invocation arguments are available as `$ARGUMENTS`. Parse the requirements-doc path and the optional `--goal <name|index>` flag out of `$ARGUMENTS` per Step 1. The protocol contract for decomposition lives in the `stride-ideation` skill and the requirements-decomposer custom agent — this command defers to them and never reimplements the decomposition methodology.
 
+**Asking the user.** Every question this command asks goes through OpenCode's `question` tool. The tool adds its own "Type your own answer" choice to every question, so never list an "Other" or catch-all option. If the `question` tool is not available in this client (OpenCode 1.16 registers it only for its app, CLI and desktop clients unless `OPENCODE_ENABLE_QUESTION_TOOL` is set), ask the same question as plain text — numbered options, the recommended one first — and wait for the user's reply before continuing.
+
 ### Running the bash fragments
 
 **Every bash call is a fresh shell.** OpenCode's `bash` tool starts a new process for each call, so variables, sourced functions and the result of an earlier fragment do not survive into the next call. Each fragment below is self-contained: it finds and sources the helper it needs itself and starts from the values you hand it. Run each fragment as one `bash` call and check its result before going on.
@@ -258,9 +260,9 @@ Do NOT use the raw `$REQUIREMENTS_PATH` as `SOURCE_SPEC` — it depends on the u
 
 ### Step 7: Dispatch the `requirements-decomposer` custom agent
 
-Read the full content of the requirements doc and dispatch the requirements-decomposer custom agent via an `@requirements-decomposer` mention. The dispatch is wrapped in a **bounded retry loop** so the command survives transient Anthropic API capacity spikes (HTTP 529 Overloaded). Subagent dispatch has no side effects on the Stride API — a retried call cannot double-create anything — so retrying it is safe in a way that retrying the Step 9 POST is not.
+Read the full content of the requirements doc and dispatch the requirements-decomposer custom agent by calling OpenCode's `task` tool with `subagent_type: "requirements-decomposer"`, a short `description` (e.g. `Decompose requirements doc`) and the prompt below — never with an `@name` mention, which only a user's own prompt turns into an agent call. The dispatch is wrapped in a **bounded retry loop** so the command survives transient Anthropic API capacity spikes (HTTP 529 Overloaded). Subagent dispatch has no side effects on the Stride API — a retried call cannot double-create anything — so retrying it is safe in a way that retrying the Step 9 POST is not.
 
-Dispatch the requirements-decomposer custom agent (an `@requirements-decomposer` mention) with a prompt consisting of the requirements doc text, fenced inside a "Requirements document:" block — the only input the subagent has access to.
+Call the `task` tool (`subagent_type: "requirements-decomposer"`) with a prompt consisting of the requirements doc text, fenced inside a "Requirements document:" block — the only input the subagent has access to.
 
 The subagent receives the requirements doc as its entire input (no codebase access, no Stride API access, no clarifying-question loop). Its prompt at `agents/requirements-decomposer.md` documents the decomposition methodology, the canonical batch JSON shape, and the output contract.
 
@@ -291,7 +293,7 @@ while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
   # and floods stderr on retry. The attempt number is the only signal needed.
   echo "stride-ideation: dispatching requirements-decomposer (attempt $ATTEMPT/$MAX_ATTEMPTS)" >&2
 
-  RESULT="$(dispatch @requirements-decomposer with prompt=$DECOMPOSER_PROMPT)"
+  RESULT="$(task subagent_type=requirements-decomposer description="Decompose requirements doc" prompt="$DECOMPOSER_PROMPT")"
 
   case "$(classify "$RESULT")" in
     success)
@@ -549,11 +551,20 @@ Use the `write` tool to write the JSON document to the resolved target path. The
 : "${TARGET_PATH:?stride-ideation: TARGET_PATH was not carried forward from Step 8c}"
 : "${SLUG:?stride-ideation: SLUG was not carried forward from Step 4}"
 : "${GOAL_SLUG?stride-ideation: GOAL_SLUG was not carried forward from Step 2b}"
-git add "$TARGET_PATH" || exit 1
+# A carried value that names a directory would let git add sweep in every
+# untracked file under it; only the written artifact itself is committed.
+if [ ! -f "$TARGET_PATH" ] || [ -L "$TARGET_PATH" ]; then
+  echo "stride-ideation: $TARGET_PATH is not the written artifact (not a regular file); nothing was committed" >&2
+  exit 1
+fi
+# Commit ONLY the batch JSON: the pathspec after -- keeps anything the user
+# had already staged staged and out of this commit. --literal-pathspecs makes
+# a path containing * or a leading : match only itself.
+git --literal-pathspecs add -- "$TARGET_PATH" || exit 1
 if [ -n "$GOAL_SLUG" ]; then
-  git commit -m "stride-ideation: decomposition for $SLUG goal $GOAL_SLUG" || exit 1
+  git --literal-pathspecs commit -m "stride-ideation: decomposition for $SLUG goal $GOAL_SLUG" -- "$TARGET_PATH" || exit 1
 else
-  git commit -m "stride-ideation: decomposition for $SLUG" || exit 1
+  git --literal-pathspecs commit -m "stride-ideation: decomposition for $SLUG" -- "$TARGET_PATH" || exit 1
 fi
 
 # BATCH_PATH is the name the ship-side steps below use for the same file.
@@ -562,7 +573,7 @@ printf 'carry: BATCH_PATH=%s\n' "$TARGET_PATH"
 
 When `--goal` was set, the commit message gains the goal slug so the audit trail records WHICH surface this batch covers — important when multiple per-goal commits ride on the same source requirements doc (their `source_spec_sha256` values match, but their commit subjects disambiguate).
 
-Use `git add <path>` (not `git add -A` or `git commit -a`) to avoid sweeping unrelated working-tree changes into this commit. The source requirements doc is NOT in the commit's file list — `/stridify` reads it but never modifies it.
+`git add <path>` alone does not keep unrelated work out of this commit: a plain `git commit` commits everything already staged, including files the user staged before running `/stridify`. So the fragment passes the batch path as a pathspec after `--`, which commits that one file and leaves every other staged change staged and uncommitted; `--literal-pathspecs` makes git match that path literally, so a directory or slug containing `*` or a leading `:` cannot widen the match. Keep the `git add` — a pathspec commit of a still-untracked file fails — and never use `git add -A` or `git commit -a`. The source requirements doc is NOT in the commit's file list — `/stridify` reads it but never modifies it.
 
 > **Drift check omitted.** The historical `/ship` command ran a `source_spec_sha256` drift check at this point to catch the case where the user hand-edited the requirements doc between `/decompose` and `/ship`. In the merged `/stridify` flow the batch JSON was just written by this command in the current invocation, so source drift cannot have occurred. The check is skipped.
 
@@ -605,7 +616,7 @@ PY
 
 **(8.5b) Bypass when `--yes` / `--auto-approve` was set.** If `AUTO_APPROVE` is `true`, the human opted out of the gate explicitly: skip the prompt entirely and proceed to Step 9. Do NOT prompt, do NOT block — scripted and non-interactive callers depend on this path staying byte-for-byte identical to the historical fire-and-forget flow. (The tree render in 8.5a is still printed so the log carries a record of what was shipped, but no interaction is required.)
 
-**(8.5c) Otherwise, require explicit approval.** When `AUTO_APPROVE` is unset, ask the human via OpenCode's question UI (the same prompt mechanism `/ideate` uses — NOT Claude Code's `AskUserQuestion`) whether to create these goals and tasks in Stride. Proceed to Step 9 **only** on an explicit approval.
+**(8.5c) Otherwise, require explicit approval.** When `AUTO_APPROVE` is unset, ask the human via OpenCode's `question` tool (the same prompt mechanism `/ideate` uses — NOT Claude Code's `AskUserQuestion`) whether to create these goals and tasks in Stride. Proceed to Step 9 **only** on an explicit approval.
 
 On **decline**, stop cleanly:
 

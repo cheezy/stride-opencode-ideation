@@ -58,6 +58,9 @@ no() { FAIL=$(( FAIL + 1 )); printf 'FAIL  %s\n' "$1"; if [ -n "${2:-}" ]; then 
 
 # --- the lint ---------------------------------------------------------------
 
+# Agent names the @-reference rule protects: this bundle's agents/*.md.
+LINT_AGENTS="$(cd "$BUNDLE/agents" && ls *.md | sed 's/\.md$//' | paste -sd, -)"
+export LINT_AGENTS
 cat > "$TMP/lint.py" <<'PY'
 """Lint OpenCode command templates. Prints one line per violation."""
 import re
@@ -73,6 +76,12 @@ READ_VARS = re.compile(r'\bread\s+(?:-r\s+)?([A-Z_][A-Z0-9_ ]*)')
 STI_CALL = re.compile(r'\b(sti_[a-z_]+)\b')
 SOURCE = re.compile(r'^\s*\.\s+"\$STI_LIB/([a-z_]+\.sh)"')
 ALWAYS_SET = {'HOME', 'STI_ROOT', 'STI_LIB'}
+# OpenCode's @-reference pattern for command templates (1.16): an @ that does
+# not follow a word character or a backtick. A match naming an agent becomes
+# an agent call at expansion time, before any step runs.
+FILE_REF = re.compile(r'(?<![\w`])@(\.?[^\s`,.]*(?:\.[^\s`,.]+)*)')
+import os
+AGENTS = {a for a in os.environ.get('LINT_AGENTS', '').split(',') if a}
 
 
 def helper_file(fn):
@@ -104,6 +113,9 @@ def lint(path):
             out.append(f'{path}:{n}: dollar-digit sequence (OpenCode rewrites it): {line.strip()}')
         if '<plugin-root>' in line:
             out.append(f'{path}:{n}: <plugin-root> placeholder: {line.strip()}')
+        for ref in FILE_REF.findall(line):
+            if ref in AGENTS:
+                out.append(f'{path}:{n}: bare @{ref} (OpenCode turns it into an agent call at expansion time): {line.strip()}')
     if text.count(RULE) != 1:
         out.append(f'{path}: the fresh-shell rule {RULE} appears {text.count(RULE)} times, want 1')
     for start, body in blocks(text):
@@ -209,6 +221,10 @@ echo \"\$SLUG\""
 lint_catches "lint: catches a carried value with no check" "has no" "$TMP/unchecked.md"
 plant nocarry "echo hi"
 lint_catches "lint: catches a block with no Carried forward line" "Carried forward" "$TMP/nocarry.md"
+printf '%s\n\nThen dispatch @requirements-decomposer with the prompt.\n' '**Every bash call is a fresh shell.**' > "$TMP/atref.md"
+lint_catches "lint: catches a bare @agent reference" "bare @requirements-decomposer" "$TMP/atref.md"
+printf '%s\n\nNever use `@requirements-decomposer`; call the task tool.\n' '**Every bash call is a fresh shell.**' > "$TMP/atref-ok.md"
+lint_ok "lint: a backticked @agent name is left alone" "$TMP/atref-ok.md"
 printf '```bash\n# Carried forward: none\necho hi\n```\n' > "$TMP/norule.md"
 lint_catches "lint: catches a file without the fresh-shell rule" "appears 0 times" "$TMP/norule.md"
 

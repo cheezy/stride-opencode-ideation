@@ -63,6 +63,45 @@ parse_yes_flag() {
   printf '%s\n%s\n' "$yes" "$out"
 }
 
+# --- reference --batch parser ------------------------------------------------
+#
+# Mirrors commands/stridify.md Step 1's --batch rules. Prints one line:
+#   batch=<path>|yes=<true|false>|err=<usage|goal|doc|>|rest=<remainder>
+# err=usage: --batch with no value (bare, `--batch=`, or followed by a flag),
+#            or neither --batch nor a doc path; err=goal: --batch with --goal;
+# err=doc: --batch with a requirements-doc path left over.
+
+parse_batch_args() {
+  # shellcheck disable=SC2206
+  local toks=( $1 )
+  local batch="" have_batch=false goal="" yes=false rest="" err="" i=0 t
+  while [ "$i" -lt "${#toks[@]}" ]; do
+    t="${toks[$i]}"
+    case "$t" in
+      --batch)
+        have_batch=true
+        if [ $(( i + 1 )) -lt "${#toks[@]}" ] && [ "${toks[$(( i + 1 ))]#--}" = "${toks[$(( i + 1 ))]}" ]; then
+          batch="${toks[$(( i + 1 ))]}"; i=$(( i + 1 ))
+        else
+          err=usage
+        fi ;;
+      --batch=*) have_batch=true; batch="${t#--batch=}"; [ -n "$batch" ] || err=usage ;;
+      --goal) goal="${toks[$(( i + 1 ))]:-}"; i=$(( i + 1 )) ;;
+      --goal=*) goal="${t#--goal=}" ;;
+      --yes|--auto-approve) yes=true ;;
+      *) rest="${rest:+$rest }$t" ;;
+    esac
+    i=$(( i + 1 ))
+  done
+  if [ -z "$err" ]; then
+    if [ "$have_batch" = true ] && [ -n "$goal" ]; then err=goal
+    elif [ "$have_batch" = true ] && [ -n "$rest" ]; then err=doc
+    elif [ "$have_batch" = false ] && [ -z "$rest" ]; then err=usage
+    fi
+  fi
+  printf 'batch=%s|yes=%s|err=%s|rest=%s\n' "$batch" "$yes" "$err" "$rest"
+}
+
 # --- reference preview render ----------------------------------------------
 #
 # Mirrors commands/stridify.md Step 8.5a. Reads ONLY the on-disk batch JSON (no auth
@@ -128,8 +167,8 @@ render_and_gate() {
       ;;
     *)
       # 8.5c decline: clean stop, no POST, JSON untouched. Real impl exit 0.
-      echo "stride-ideation: declined. The batch JSON is on disk at $batch"
-      echo "(committed in git) for a later manual ship. No POST was attempted."
+      echo "stride-ideation: declined. The batch JSON is on disk at $batch; no POST was attempted."
+      echo "Ship it later, unchanged, with: /stridify --batch \"$batch\""
       return 10
       ;;
   esac
@@ -225,7 +264,7 @@ if [ "$BATCH_SHA_BEFORE" = "$BATCH_SHA_AFTER" ]; then
 else
   fail "case 3: declined batch JSON was rewritten (pitfall violated)"
 fi
-if grep -qF "No POST was attempted" "$TMP/run_decline.log"; then
+if grep -qiF "no POST was attempted" "$TMP/run_decline.log"; then
   pass "case 3: decline message states the POST was not attempted"
 else
   fail "case 3: decline message missing 'No POST was attempted'"
@@ -302,6 +341,30 @@ if grep -qE 'stride_(dev|prod)_|Bearer |Authorization:' \
   fail "case 8: gate output contains potential auth material (pitfall violated)"
 else
   pass "case 8: no Bearer/token/Authorization strings in preview or gate output (pitfall avoided)"
+fi
+
+# === cases 9-14: /stridify --batch parse and gate ==========================
+
+expect_parse() { # expect_parse <label> <args> <expected line>
+  local got; got="$(parse_batch_args "$2")"
+  if [ "$got" = "$3" ]; then pass "$1"; else fail "$1" "got [$got] want [$3]"; fi
+}
+expect_parse "case 9: --batch <path> selects batch mode" "--batch docs/x-stride-batch.json" "batch=docs/x-stride-batch.json|yes=false|err=|rest="
+expect_parse "case 10: --batch=<path> splits on the first = only" "--batch=docs/a=b.json" "batch=docs/a=b.json|yes=false|err=|rest="
+expect_parse "case 11a: a bare trailing --batch is a usage error" "--batch" "batch=|yes=false|err=usage|rest="
+expect_parse "case 11b: --batch= with no value is a usage error" "--batch=" "batch=|yes=false|err=usage|rest="
+expect_parse "case 11c: --batch followed by a flag never takes the flag as its path" "--batch --yes" "batch=|yes=true|err=usage|rest="
+expect_parse "case 12: --batch together with --goal is rejected" "--batch b.json --goal 2" "batch=b.json|yes=false|err=goal|rest="
+expect_parse "case 13: --batch with a requirements-doc path left over is rejected" "--batch b.json docs/x-requirements.md" "batch=b.json|yes=false|err=doc|rest=docs/x-requirements.md"
+expect_parse "case 14a: --batch --yes keeps the path and sets the bypass" "--batch b.json --yes" "batch=b.json|yes=true|err=|rest="
+reset_post_sentinel
+render_and_gate "$BATCH" true "" >"$TMP/run_batch_yes.log" 2>&1
+rc_batch_yes=$?
+if [ "$rc_batch_yes" -eq 0 ] && post_was_attempted && ! grep -q 'declined' "$TMP/run_batch_yes.log" \
+   && grep -q 'Goals and tasks to be created:' "$TMP/run_batch_yes.log"; then
+  pass "case 14b: --batch --yes renders the preview and reaches the POST with no prompt"
+else
+  fail "case 14b: --batch --yes did not render-then-POST" "rc=$rc_batch_yes"
 fi
 
 # === summary ==============================================================

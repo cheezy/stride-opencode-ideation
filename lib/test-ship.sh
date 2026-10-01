@@ -237,7 +237,7 @@ fi
 
 run_ship usage
 rc_is "ship: no argument is a usage error (exit 2)" 2
-contains "ship: usage error names both forms" "$C/err" "ship.sh --check-auth | ship.sh <batch.json>"
+contains "ship: usage error names every form" "$C/err" "ship.sh --check-auth | ship.sh --check-payload <batch.json> | ship.sh <batch.json>"
 
 run_ship missing "$TMP/does-not-exist.json"
 rc_is "ship: a missing batch file exits 1" 1
@@ -299,6 +299,16 @@ contains "2xx: created_by_agent survives the strip" "$C/log/payload" '"created_b
 if grep -q '"source_spec"' "$TMP/batch.json"; then pass "2xx: the on-disk batch JSON is not modified"; else fail "2xx: on-disk batch JSON lost its audit fields"; fi
 no_temp_left "2xx: every temp file is removed"
 
+# /stridify --batch ships a batch that may have been written by hand, with no
+# local audit fields at all: it must ship as-is.
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); [d.pop(k, None) for k in ("source_spec","source_spec_sha256","decomposition_notes")]; json.dump(d, open(sys.argv[2], "w"), indent=2)' "$TMP/batch.json" "$TMP/hand-batch.json"
+cp "$TMP/hand-batch.json" "$TMP/hand-batch.before"
+FAKE_CODE=201 FAKE_BODY="$TMP/created.json" run_ship handbatch "$TMP/hand-batch.json"
+rc_is "--batch: a hand-written batch with no audit fields ships (exit 0)" 0
+contains "--batch: a hand-written batch renders the created identifiers" "$C/out" "G77"
+calls_are "--batch: curl runs exactly once" 1
+if cmp -s "$TMP/hand-batch.before" "$TMP/hand-batch.json"; then pass "--batch: the batch file is shipped as-is, never rewritten"; else fail "--batch: the batch file was modified"; fi
+
 FAKE_CODE=201 FAKE_BODY="$TMP/created-flat.json" run_ship flat "$TMP/batch.json"
 rc_is "2xx flat shape: exits 0" 0
 contains "2xx flat shape: renders the goal row" "$C/out" "     G78  Flat goal"
@@ -313,6 +323,28 @@ FAKE_CODE=201 FAKE_BODY="$TMP/empty-goals.json" run_ship emptygoals "$TMP/batch.
 rc_is "2xx listing no goals: exits 0" 0
 contains "2xx listing no goals: says no goals were listed" "$C/err" "listed no created goals"
 lacks "2xx listing no goals: does not claim goals already exist" "$C/err" "already exist"
+
+# --- --check-payload (/stridify --batch, before its preview) ----------------------
+
+python3 - "$TMP/batch.json" "$TMP/notes-token.json" "$TOKEN" <<'PY'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+doc["decomposition_notes"] = "pasted from a transcript: " + sys.argv[3]
+json.dump(doc, open(sys.argv[2], "w"))
+PY
+run_ship checkpayload-token --check-payload "$TMP/notes-token.json"
+rc_is "check-payload: a token in decomposition_notes is refused (exit 1)" 1
+contains "check-payload: says nothing was shown or sent" "$C/err" "nothing was shown or sent"
+no_token_anywhere "check-payload: the token is not printed"
+calls_are "check-payload: curl never runs" 0
+run_ship checkpayload-clean --check-payload "$TMP/batch.json"
+rc_is "check-payload: a clean batch passes (exit 0)" 0
+calls_are "check-payload: a clean batch makes no request" 0
+run_ship checkpayload-missing --check-payload "$TMP/nope.json"
+rc_is "check-payload: a missing file exits 1" 1
+run_ship checkpayload-dash --check-payload -x.json
+rc_is "check-payload: a path starting with '-' is a usage error" 2
+no_temp_left "check-payload: leaves no temp file"
 
 # --- failures before any request ------------------------------------------------
 

@@ -47,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`validate_batch.py` accepted malformed tasks.** A task with no title or type, a task typed `goal`, and a stray root `tasks` key next to `goals` now fail, each with an error naming the JSON path. The command no longer counts the validator's checks ("five named checks"); it lists them.
 - **The seven-section gate is scripted.** New `lib/check_sections.py` matches level-2 headings case-insensitively (so `Success Metrics` and `Success metrics` both pass), ignores headings inside code fences, and lists every missing section; `/stridify` Step 2.3 runs it instead of a model-followed `grep`. Tested by new `lib/test-check-sections.sh` and `.ps1`.
 
+### Added — `/stridify --batch <path>` ships an existing batch without decomposing again (W2191)
+
+- After a declined approval gate, a failed POST or a retry-exhausted run, the batch JSON on disk was the recovery artifact, but the only way to ship it was a hand-written authenticated `curl` — exactly where tokens leak into shell history and transcripts — or re-running `/stridify`, which decomposes again into a different batch. New Step 1b: `--batch` (also `--batch=<path>`) validates the file, warns that re-shipping creates duplicates, shows the Step 8.5 preview and approval gate (honoring `--yes`), and ships through `lib/ship.sh`. Before the preview, the new `lib/ship.sh --check-payload` refuses a file that carries the configured API token anywhere (including `decomposition_notes`, which the POST strips but the preview prints), so a pasted batch can never put the token on screen. It commits nothing, never rewrites, drift-checks or re-stamps the file, accepts a hand-written batch without the audit fields, and refuses `--goal` or a requirements-doc path alongside it. The decline message, the Step 7.5 recovery README and summary, and the Step 9 recovery prose now point at it; the usage line, frontmatter description and README list it.
+
 ## [0.4.1] - 2026-08-21
 
 Documentation only. Nothing in the skills or the install path changed.

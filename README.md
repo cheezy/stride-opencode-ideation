@@ -26,6 +26,12 @@ The two native slash commands:
   ## Decomposition seams section (see "Resilience model" below).
   --yes (alias --auto-approve) bypasses the preview-and-approval gate
   for scripted, non-interactive runs.
+
+/stridify --batch <path-to-stride-batch.json> [--yes]
+  Ships an existing batch JSON — one a declined approval gate, a failed
+  POST or a retry-exhausted run left on disk — without decomposing again:
+  validates it, previews it, asks for approval (unless --yes), and POSTs it
+  through lib/ship.sh. Commits nothing; cannot be combined with --goal.
 ```
 
 `/ideate` is hard-gated on seven required sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics) plus shape requirements on Assumptions (ranked, riskiest marked, premortem-derived) and Success Metrics (both leading and lagging indicators). `/stridify` is gated on a passing structural validation of the decomposer's output before it commits or POSTs anything.

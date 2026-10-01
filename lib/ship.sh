@@ -3,6 +3,9 @@
 #
 # Usage:
 #   bash lib/ship.sh --check-auth      # Step 3 preflight: read auth, POST nothing
+#   bash lib/ship.sh --check-payload <batch.json>
+#                                      # /stridify --batch: refuse a file that
+#                                      # contains the token, POST nothing
 #   bash lib/ship.sh <batch.json>      # Steps 9-10: strip, POST, branch, render
 #
 # Auth file: $STRIDE_AUTH_FILE if set, else .stride_auth.md at the git toplevel
@@ -70,7 +73,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 usage() {
-  echo "stride-ideation: usage: ship.sh --check-auth | ship.sh <batch.json>" >&2
+  echo "stride-ideation: usage: ship.sh --check-auth | ship.sh --check-payload <batch.json> | ship.sh <batch.json>" >&2
   exit 2
 }
 
@@ -134,6 +137,41 @@ sys.stderr.buffer.write(body)
 ' "$1"
 }
 
+# file_has_token <file> — exit 0 when <file> contains the configured token
+# (raw or JSON-escaped). The token reaches python on stdin, never argv or
+# env; a match prints no value.
+file_has_token() {
+  ! printf '%s' "$STRIDE_API_TOKEN" | python3 -c '
+import sys
+token = sys.stdin.read()
+body = open(sys.argv[1], "rb").read()
+if token and (token.encode() in body or token.replace("/", "\\/").encode() in body):
+    sys.exit(1)
+' "$1"
+}
+
+if [ "$#" -eq 2 ] && [ "$1" = "--check-payload" ]; then
+  # /stridify --batch runs this before its preview: a hand-written or pasted
+  # batch could carry the token anywhere — including decomposition_notes,
+  # which the preview prints and the POST strip would hide from the payload
+  # check below. The whole on-disk file is checked; nothing is sent.
+  case "$2" in
+    -*) usage ;;
+  esac
+  if [ ! -f "$2" ]; then
+    echo "stride-ideation: batch JSON not found at $2" >&2
+    exit 1
+  fi
+  read_auth
+  if file_has_token "$2"; then
+    unset STRIDE_API_TOKEN
+    echo "stride-ideation: $2 contains the configured Stride API token; nothing was shown or sent. Remove it from the file and retry." >&2
+    exit 1
+  fi
+  unset STRIDE_API_TOKEN
+  exit 0
+fi
+
 [ "$#" -eq 1 ] || usage
 
 if [ "$1" = "--check-auth" ]; then
@@ -179,13 +217,7 @@ read_auth
 # transcript or a decomposer that read the wrong file could carry it into the
 # batch, which is POSTed where every board member can read it. The token
 # reaches python on stdin, never argv or env; matches print no value.
-if ! printf '%s' "$STRIDE_API_TOKEN" | python3 -c '
-import sys
-token = sys.stdin.read()
-body = open(sys.argv[1], "rb").read()
-if token and (token.encode() in body or token.replace("/", "\\/").encode() in body):
-    sys.exit(1)
-' "$PAYLOAD_FILE"; then
+if file_has_token "$PAYLOAD_FILE"; then
   echo "stride-ideation: the batch contains the configured Stride API token; nothing was sent. Remove it from $BATCH_PATH and retry." >&2
   exit 1
 fi

@@ -421,6 +421,30 @@ cp "$BUNDLE/fixtures/2026-05-12T120000-dark-mode-toggle-requirements.md" "$PROJ/
 printf '\n## Decomposition seams\n\n1. **Kanban app** — owns the contract\n2. **Stride plugin** — adapter\n3. **Docs site** — guides\n4. **CLI** — flags\n' >> "$PROJ/$REQ"
 git -C "$PROJ" add "$REQ" && git -C "$PROJ" commit -q -m "add req"
 
+printf '\n/stridify --batch (Step 1b)\n'
+mkdir -p "$PROJ/batches"
+cp "$BUNDLE/fixtures/2026-05-12T120000-dark-mode-toggle-stride-batch.json" "$PROJ/batches/ok batch.json"
+run_frag stridify-step1b-1.sh "BATCH_PATH=batches/ok batch.json"
+expect_rc "stridify Step 1b: a valid batch passes validation" 0
+expect_has "stridify Step 1b: warns that re-shipping creates duplicates" "$ERR" "shipping it again creates every goal and task a second time"
+run_frag stridify-step1b-1.sh "BATCH_PATH=batches/missing.json"
+expect_rc "stridify Step 1b: a missing batch file stops" 1
+expect_has "stridify Step 1b: names the missing file" "$ERR" "batch JSON not found at batches/missing.json"
+printf '{"tasks": []}' > "$PROJ/batches/bad.json"
+run_frag stridify-step1b-1.sh "BATCH_PATH=batches/bad.json"
+expect_rc "stridify Step 1b: an invalid batch stops before anything is sent" 1
+expect_has "stridify Step 1b: surfaces the validator's message" "$ERR" "root key 'tasks'"
+run_frag stridify-step1b-1.sh "BATCH_PATH=-rf.json"
+expect_rc "stridify Step 1b: a path starting with '-' is refused" 1
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["decomposition_notes"]="pasted: stride_dev_TEMPLATES_TEST_0000"; json.dump(d, open(sys.argv[2], "w"))' "$PROJ/batches/ok batch.json" "$PROJ/batches/token.json"
+run_frag stridify-step1b-1.sh "BATCH_PATH=batches/token.json"
+expect_rc "stridify Step 1b: a batch carrying the API token is refused before the preview" 1
+if printf '%s' "$OUT$ERR" | grep -qF 'stride_dev_TEMPLATES_TEST_0000'; then no "stridify Step 1b: the refused token is never printed"; else ok "stridify Step 1b: the refused token is never printed"; fi
+mkdir -p "$TMP/outside"
+cp "$PROJ/batches/ok batch.json" "$TMP/outside/elsewhere.json"
+run_frag stridify-step1b-1.sh "BATCH_PATH=$TMP/outside/elsewhere.json"
+expect_rc "stridify Step 1b: a batch file outside the repository is accepted" 0
+
 run_frag stridify-step2-1.sh "REQUIREMENTS_PATH=$REQ"
 expect_rc "stridify Step 2.3 section gate: a complete doc passes" 0
 printf '# Thin\n\n## Problem\n\np\n\n## Goal\n\ng\n' > "$PROJ/docs/ideation/thin-requirements.md"
@@ -504,9 +528,13 @@ if git -C "$PROJ" show --name-only --format= HEAD | grep -qF '.stride/'; then no
 
 run_frag stridify-step8.5-1.sh "BATCH_PATH=$BATCH"
 expect_has "stridify Step 8.5a: renders the tree" "$OUT" "Goals and tasks to be created:"
+python3 -c 'import json,sys; json.dump({"goals": [{"title": "Real goal\u001b[2K\rForged", "type": "goal", "tasks": [{"title": "T1\n    - Hidden task", "type": "work"}]}]}, open(sys.argv[1], "w"))' "$PROJ/batches/escapes.json"
+run_frag stridify-step8.5-1.sh "BATCH_PATH=batches/escapes.json"
+if printf '%s' "$OUT" | LC_ALL=C grep -q "$(printf '\033')"; then no "stridify Step 8.5a: control characters in titles are shown escaped"; else ok "stridify Step 8.5a: control characters in titles are shown escaped"; fi
+expect_has "stridify Step 8.5a: a newline in a title cannot forge a task line" "$OUT" 'T1\n    - Hidden task'
 run_frag stridify-step8.5-2.sh "BATCH_PATH=$BATCH"
 expect_rc "stridify Step 8.5c decline: exits 0" 0
-expect_has "stridify Step 8.5c decline: names the resolved ship.sh" "$ERR" ".opencode/stride-ideation/lib/ship.sh"
+expect_has "stridify Step 8.5c decline: points at /stridify --batch" "$ERR" "/stridify --batch \"$BATCH\""
 
 run_frag stridify-step9-1.sh "BATCH_PATH=$BATCH"
 expect_rc "stridify Step 9: ships through the resolved ship.sh" 0

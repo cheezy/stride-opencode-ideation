@@ -107,8 +107,8 @@ function Step-75SavePromptAndExit {
         'Paste the prompt block above into a fresh Claude session — any model capable'
         'of following the requirements-decomposer contract works. The session does'
         "NOT need codebase access. Save the resulting fenced JSON as $TargetBatchPath."
-        'Then run python3 <STI_LIB>/validate_batch.py on that path, and follow'
-        'Step 9 of commands/stridify.md manually.'
+        'Then run /stridify --batch on that path to validate, preview and'
+        'ship it through lib/ship.sh — no hand-written curl.'
         ''
         'This sibling file contains NO authentication material — the decomposer'
         'prompt has no API access by construction.'
@@ -135,7 +135,7 @@ function Step-75SavePromptAndExit {
     [Console]::Error.WriteLine('')
     [Console]::Error.WriteLine('To recover: paste the prompt block from that file into a fresh Claude')
     [Console]::Error.WriteLine("session; save the JSON response as $TargetBatchPath; then run")
-    [Console]::Error.WriteLine("``python3 lib/validate_batch.py $TargetBatchPath`` and the manual POST per Step 9.")
+    [Console]::Error.WriteLine("``/stridify --batch `"$TargetBatchPath`"`` to validate, preview and ship it.")
     [Console]::Error.WriteLine('')
     [Console]::Error.WriteLine('The Stride API POST was NOT attempted.')
     # The real implementation calls `exit 1`; the test wants control to return.

@@ -42,6 +42,35 @@ function Parse-YesFlag([string]$ArgString) {
 # --- reference preview render ----------------------------------------------
 # Mirrors commands/stridify.md Step 8.5a. Reads ONLY the on-disk batch JSON (no auth
 # material) and returns the goal/task tree + cross-goal claim order as text.
+# Mirrors commands/stridify.md Step 1's --batch rules; returns
+# batch=<path>|yes=<true|false>|err=<usage|goal|doc|>|rest=<remainder>
+function Parse-BatchArgs([string]$ArgString) {
+    $toks = @($ArgString -split '\s+' | Where-Object { $_ })
+    $batch = ''; $haveBatch = $false; $goal = ''; $yes = 'false'; $rest = @(); $err = ''
+    for ($i = 0; $i -lt $toks.Count; $i++) {
+        $t = $toks[$i]
+        if ($t -ceq '--batch') {
+            $haveBatch = $true
+            if ((($i + 1) -lt $toks.Count) -and -not $toks[$i + 1].StartsWith('--')) { $batch = $toks[$i + 1]; $i++ } else { $err = 'usage' }
+        } elseif ($t.StartsWith('--batch=')) {
+            $haveBatch = $true; $batch = $t.Substring(8); if (-not $batch) { $err = 'usage' }
+        } elseif ($t -ceq '--goal') {
+            if (($i + 1) -lt $toks.Count) { $goal = $toks[$i + 1] }; $i++
+        } elseif ($t.StartsWith('--goal=')) {
+            $goal = $t.Substring(7)
+        } elseif (($t -ceq '--yes') -or ($t -ceq '--auto-approve')) {
+            $yes = 'true'
+        } else { $rest += $t }
+    }
+    $restText = $rest -join ' '
+    if (-not $err) {
+        if ($haveBatch -and $goal) { $err = 'goal' }
+        elseif ($haveBatch -and $restText) { $err = 'doc' }
+        elseif ((-not $haveBatch) -and -not $restText) { $err = 'usage' }
+    }
+    return "batch=$batch|yes=$yes|err=$err|rest=$restText"
+}
+
 function Render-Preview([string]$BatchPath) {
     $data = Get-Content -LiteralPath $BatchPath -Raw | ConvertFrom-Json
     $lines = New-Object System.Collections.Generic.List[string]
@@ -87,8 +116,8 @@ function Render-AndGate([string]$BatchPath, [bool]$AutoApprove, [string]$Answer,
         Set-Content -LiteralPath $LogPath -Encoding UTF8 -Value ($out -join "`n")
         return 0
     }
-    $out.Add("stride-ideation: declined. The batch JSON is on disk at $BatchPath") | Out-Null
-    $out.Add('(committed in git) for a later manual ship. No POST was attempted.') | Out-Null
+    $out.Add("stride-ideation: declined. The batch JSON is on disk at $BatchPath; no POST was attempted.") | Out-Null
+    $out.Add("Ship it later, unchanged, with: /stridify --batch `"$BatchPath`"") | Out-Null
     Set-Content -LiteralPath $LogPath -Encoding UTF8 -Value ($out -join "`n")
     return 10
 }
@@ -248,6 +277,27 @@ try {
     } else {
         Pass 'case 8: no Bearer/token/Authorization strings in preview or gate output (pitfall avoided)'
     }
+
+    # === cases 9-14: /stridify --batch parse and gate ======================
+    function Expect-Parse([string]$Label, [string]$ArgString, [string]$Want) {
+        $got = Parse-BatchArgs $ArgString
+        if ($got -ceq $Want) { Pass $Label } else { Fail $Label "got [$got] want [$Want]" }
+    }
+    Expect-Parse 'case 9: --batch <path> selects batch mode' '--batch docs/x-stride-batch.json' 'batch=docs/x-stride-batch.json|yes=false|err=|rest='
+    Expect-Parse 'case 10: --batch=<path> splits on the first = only' '--batch=docs/a=b.json' 'batch=docs/a=b.json|yes=false|err=|rest='
+    Expect-Parse 'case 11a: a bare trailing --batch is a usage error' '--batch' 'batch=|yes=false|err=usage|rest='
+    Expect-Parse 'case 11b: --batch= with no value is a usage error' '--batch=' 'batch=|yes=false|err=usage|rest='
+    Expect-Parse 'case 11c: --batch followed by a flag never takes the flag as its path' '--batch --yes' 'batch=|yes=true|err=usage|rest='
+    Expect-Parse 'case 12: --batch together with --goal is rejected' '--batch b.json --goal 2' 'batch=b.json|yes=false|err=goal|rest='
+    Expect-Parse 'case 13: --batch with a requirements-doc path left over is rejected' '--batch b.json docs/x-requirements.md' 'batch=b.json|yes=false|err=doc|rest=docs/x-requirements.md'
+    Expect-Parse 'case 14a: --batch --yes keeps the path and sets the bypass' '--batch b.json --yes' 'batch=b.json|yes=true|err=|rest='
+    $logBatchYes = Join-Path $tmpDir 'run_batch_yes.log'
+    Remove-Item -LiteralPath $sentinel -ErrorAction SilentlyContinue
+    $rc = Render-AndGate $batch $true '' $sentinel $logBatchYes
+    $batchYesText = Get-Content -Raw -LiteralPath $logBatchYes
+    if (($rc -eq 0) -and (Test-Path -LiteralPath $sentinel) -and -not $batchYesText.Contains('declined') -and $batchYesText.Contains('Goals and tasks to be created:')) {
+        Pass 'case 14b: --batch --yes renders the preview and reaches the POST with no prompt'
+    } else { Fail 'case 14b: --batch --yes did not render-then-POST' "rc=$rc" }
 } finally {
     Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
 }

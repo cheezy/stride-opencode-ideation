@@ -131,9 +131,9 @@ If `INPUT_PATH` is set, **read-only** load its content via the `read` tool into 
 
 ### Step 4d: Detect an unfinished draft and resolve the autosave path
 
-The requirements doc is not written until the hard gate passes (Step 8), so an interruption mid-session would otherwise lose every answer. To make a session recoverable, `/ideate` autosaves the in-progress draft to a **gitignored** scratch file under `.stride/` (see Step 5), and on start it offers to resume any unfinished draft for the **same slug**.
+The requirements doc is not written until the hard gate passes (Step 8), so an interruption mid-session would otherwise lose every answer. To make a session recoverable, the skill autosaves the in-progress draft to a scratch file under `.stride/` after every round (see Step 5), and on start `/ideate` offers to resume any unfinished draft for the **same slug**. The fragment below also makes `.stride/` ignore itself: `sti_scratch_dir` creates the directory and writes a `.stride/.gitignore` containing `*` when that file is absent (an existing one is left alone), so drafts stay out of `git status` and `git add -A` in any repository — no edit to your project's `.gitignore` is needed or made. If the fragment stops because `.stride/` is a symlink, or because git would not ignore the draft (an existing `.stride/.gitignore` re-includes it, or it is already tracked), stop the session and tell the user what it reported: autosaving there could write the draft somewhere else or commit it.
 
-The fragment sources the draft helper and looks for an existing draft keyed by `SLUG` (resume keys on the slug, not `SESSION_TS`, because a fresh run has a new timestamp), and prints the fresh per-session scratch path alongside it. `lib/draft.ps1` (`Sti-DraftFind`, `Sti-DraftPath`) mirrors `lib/draft.sh` for PowerShell callers:
+The fragment sources the draft helper and looks for an existing draft keyed by `SLUG` (resume keys on the slug, not `SESSION_TS`, because a fresh run has a new timestamp), and prints the fresh per-session scratch path alongside it. `lib/draft.ps1` (`Sti-DraftFind`, `Sti-DraftPath`, `Sti-ScratchDir`) mirrors `lib/draft.sh` for PowerShell callers — a PowerShell translation of this fragment must call `Sti-ScratchDir .stride <draft file name>` and stop when it fails, exactly as the bash fragment does. `sti_draft_find` only offers a draft that resuming can safely rewrite: never a symlink, and inside a git work tree only one git ignores, so a tracked old draft is never resumed:
 
 ```bash
 # Carried forward: SESSION_TS, SLUG
@@ -149,6 +149,7 @@ else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode
 
 EXISTING_DRAFT="$(sti_draft_find .stride "$SLUG" 2>/dev/null || true)"
 FRESH_DRAFT_PATH="$(sti_draft_path .stride "$SESSION_TS" "$SLUG")" || exit 1
+sti_scratch_dir .stride "$(basename "$FRESH_DRAFT_PATH")" || exit 1
 printf 'carry: EXISTING_DRAFT=%s\n' "$EXISTING_DRAFT"
 printf 'carry: FRESH_DRAFT_PATH=%s\n' "$FRESH_DRAFT_PATH"
 ```
@@ -172,7 +173,7 @@ else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode
 sti_draft_clear "$EXISTING_DRAFT" || exit 1
 ```
 
-Only same-slug drafts are ever offered; a draft for a different in-flight topic is never surfaced here. The `.stride/` scratch directory is gitignored (see the project `.gitignore`) and the scratch file is **never** `git add`-ed or committed, and **never** holds the Stride API token or any other secret — it carries only the in-progress draft prose.
+Only same-slug drafts are ever offered; a draft for a different in-flight topic is never surfaced here. The `.stride/` scratch directory is ignored by its own `.stride/.gitignore` (created above), the scratch file is **never** `git add`-ed or committed, and **never** holds the Stride API token or any other secret — it carries only the in-progress draft prose.
 
 ### Step 5: Follow the `stride-ideation` skill
 
@@ -184,7 +185,7 @@ topic=<TOPIC>; slug=<SLUG>; session_ts=<SESSION_TS>; target_path=<TARGET_PATH>; 
 
 When `PRIOR_DOC` is non-empty, the skill starts the session with that content already loaded as context — refining and sharpening rather than re-eliciting every section from scratch. The Q&A loop, the round-3 checkpoint, the hard gates, and the advisory reviewer pass all still run; `--continue` does not lower the bar, only the starting cost.
 
-`draft_path=<DRAFT_PATH>` (resolved in Step 4d) is the gitignored scratch file for **intra-session autosave**. The skill persists the in-progress draft — the answered sections plus the round state — to that path via `sti_draft_save` (Unix) / `Sti-DraftSave` (Windows) **after every round**, so an interruption after any round is recoverable rather than losing every answer. If `DRAFT_PATH` already holds content (a resumed draft from Step 4d), the skill loads it as starting context at round 1. The scratch file holds only draft prose: it is gitignored, never `git add`-ed, and never carries the Stride API token or any other secret. Autosave is a recovery convenience, not a gate bypass — the hard gates, framing checkpoint, premortem, and reviewer pass still run in full.
+`draft_path=<DRAFT_PATH>` (resolved in Step 4d) is the self-ignored scratch file for **intra-session autosave**. The skill writes the in-progress draft — the answered sections plus a round-state header — to that path with the `write` tool **after every round** (see **Autosave** in `skills/stride-ideation/SKILL.md`), so an interruption after any round is recoverable rather than losing every answer. If `DRAFT_PATH` already holds content (a resumed draft from Step 4d), the skill loads it with the `read` tool as starting context at round 1. The scratch file holds only draft prose: it is ignored by `.stride/.gitignore`, never `git add`-ed, and never carries the Stride API token or any other secret. Autosave is a recovery convenience, not a gate bypass — the hard gates, framing checkpoint, premortem, and reviewer pass still run in full.
 
 When `INPUT_NOTES` is non-empty, the skill pre-populates draft sections from that freeform brain-dump wherever the notes clearly map to a gated section, then focuses the rounds on the gaps and weak sections rather than re-eliciting every section from scratch. Seeded content is a *draft starting point*, not a confirmed answer: it never satisfies a hard gate on its own — every gated section the seed pre-fills is still confirmed (or sharpened) with the human in the rounds, and sections the notes do not cover are asked normally. `prior_doc` and `input_notes` are independent and may both be present in one session.
 
@@ -332,7 +333,7 @@ else
 fi
 
 # The session succeeded — the committed doc supersedes the scratch draft.
-# Delete the gitignored autosave file (sti_draft_clear / Sti-DraftClear) so no
+# Delete the self-ignored autosave file (sti_draft_clear / Sti-DraftClear) so no
 # stale draft lingers to be offered for resume next time. Idempotent: a no-op
 # if the draft was never written.
 sti_draft_clear "$DRAFT_PATH"
@@ -340,7 +341,7 @@ sti_draft_clear "$DRAFT_PATH"
 
 Commit message format: `stride-ideation: requirements for <slug>` (fresh) or `stride-ideation: refine requirements for <slug>` (continue). Do not include the session timestamp in the message — the filename already carries it.
 
-The `sti_draft_clear "$DRAFT_PATH"` call (or `Sti-DraftClear` on Windows) runs **only after the commit succeeds** — the scratch draft is the recovery artifact, so it survives until the real doc is committed and is then removed so no stale autosave is offered for resume on a future run. The scratch file lives under the gitignored `.stride/` directory and is never part of the commit's file list.
+The `sti_draft_clear "$DRAFT_PATH"` call (or `Sti-DraftClear` on Windows) runs **only after the commit succeeds** — the scratch draft is the recovery artifact, so it survives until the real doc is committed and is then removed so no stale autosave is offered for resume on a future run. The scratch file lives under the self-ignoring `.stride/` directory and is never part of the commit's file list.
 
 If the working tree had unrelated changes before the session, the commit MUST include only the new requirements doc. `git add <path>` alone does not ensure that: a plain `git commit` commits everything already staged, including files the user staged before running `/ideate`. So the fragment passes the doc as a pathspec after `--`, which commits that one file and leaves every other staged change staged and uncommitted; `--literal-pathspecs` makes git match the path literally, so a slug or directory containing `*` or a leading `:` cannot widen the match. Keep the `git add` — a pathspec commit of a still-untracked file fails — and never use `git add -A` or `git commit -a`. In `--continue` mode the source document MUST NOT appear in the commit's file list (it was not modified, so `git status` will already show it clean — but verify nothing accidental crept in).
 

@@ -9,6 +9,7 @@
 #
 #   sti_draft_path   -> Sti-DraftPath
 #   sti_draft_find   -> Sti-DraftFind
+#   sti_scratch_dir  -> Sti-ScratchDir
 #   sti_draft_save   -> Sti-DraftSave
 #   sti_draft_load   -> Sti-DraftLoad
 #   sti_draft_exists -> Sti-DraftExists
@@ -16,9 +17,10 @@
 #
 # Filename rule: the scratch path is <dir>/<ts>-<slug>-draft.md, pairing with
 # the eventual requirements doc by its <ts>-<slug> prefix. The draft lives under
-# a GITIGNORED .stride/ path so half-finished, possibly sensitive ideation is
-# never committed; the helper never serializes any secret — it only writes the
-# content it is handed.
+# .stride/, which ignores itself (Sti-ScratchDir writes .stride/.gitignore
+# containing '*' — the user's own .gitignore is never touched), so
+# half-finished, possibly sensitive ideation is never committed; the helper
+# never serializes any secret — it only writes the content it is handed.
 #
 # Resume keys on the SLUG, not the session timestamp: Sti-DraftFind matches
 # every <ts>-<slug>-draft.md (any timestamp) and returns the latest (ISO
@@ -69,9 +71,22 @@ function Sti-DraftFind {
         return
     }
     # The leading dash in the wildcard keeps slug `auth` from matching `oauth`.
+    # Only offer a draft resuming can safely rewrite: never a symlink, and
+    # inside a git work tree only one git ignores (a tracked or re-included
+    # draft would carry the new prose into a commit).
+    $inGit = $false
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        & git -C $Dir rev-parse --is-inside-work-tree 2>$null | Out-Null
+        $inGit = ($LASTEXITCODE -eq 0)
+    }
     $candidates = @(
         Get-ChildItem -LiteralPath $Dir -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like "*-$Slug-draft.md" -and $_.Length -gt 0 } |
+            Where-Object { $_.Name -like "*-$Slug-draft.md" -and $_.Length -gt 0 -and -not $_.LinkType } |
+            Where-Object {
+                if (-not $inGit) { return $true }
+                & git -C $Dir check-ignore -q -- $_.Name 2>$null
+                return ($LASTEXITCODE -eq 0)
+            } |
             Sort-Object Name
     )
     if ($candidates.Count -eq 0) {
@@ -83,28 +98,121 @@ function Sti-DraftFind {
     $global:LASTEXITCODE = 0
 }
 
+function Sti-ScratchDir {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true, Position = 0)][AllowEmptyString()][string]$Dir,
+        [Parameter(Position = 1)][string]$Name = '0000-00-00T000000-probe-draft.md'
+    )
+    # Inside a git work tree, refuse unless git ignores <dir>/<name> (an
+    # existing .gitignore that re-includes drafts, or a tracked draft, would
+    # otherwise let draft prose reach a commit).
+    # Create the scratch directory <dir> if needed. When it is named .stride,
+    # also write <dir>/.gitignore containing '*' if absent (an existing one is
+    # left as it is), so drafts never show in `git status` — without editing the
+    # user's own .gitignore. Any other name gets no .gitignore. A symlinked
+    # <dir> is refused. Sets LASTEXITCODE.
+    if ([string]::IsNullOrEmpty($Dir)) {
+        Write-Error 'Sti-ScratchDir: usage: Sti-ScratchDir <dir> [<name>]'
+        $global:LASTEXITCODE = 1
+        return
+    }
+    if ($Name.Contains('/') -or $Name.Contains('\')) {
+        Write-Error "Sti-ScratchDir: <name> must be a file name, not a path: $Name"
+        $global:LASTEXITCODE = 1
+        return
+    }
+    $d = $Dir.TrimEnd([char]'/', [char]'\')
+    $item = Get-Item -LiteralPath $d -Force -ErrorAction SilentlyContinue
+    if ($item -and $item.LinkType) {
+        Write-Error "Sti-ScratchDir: refusing a symlinked scratch directory: $d"
+        $global:LASTEXITCODE = 1
+        return
+    }
+    try {
+        New-Item -ItemType Directory -Path $d -Force -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Error "Sti-ScratchDir: cannot create scratch directory: $d"
+        $global:LASTEXITCODE = 1
+        return
+    }
+    $ignore = Join-Path $d '.gitignore'
+    # Get-Item -Force sees a dangling symlink that Test-Path reports as absent;
+    # anything already at that path (file or link) is left alone, never written
+    # through, so a planted link can never create a file outside .stride/.
+    $existingIgnore = Get-Item -LiteralPath $ignore -Force -ErrorAction SilentlyContinue
+    if (((Split-Path -Leaf $d) -ceq '.stride') -and -not $existingIgnore) {
+        try {
+            [System.IO.File]::WriteAllText((Resolve-StiPath $ignore), "*`n")
+        } catch {
+            Write-Error "Sti-ScratchDir: cannot write $ignore"
+            $global:LASTEXITCODE = 1
+            return
+        }
+    }
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        & git -C $d rev-parse --is-inside-work-tree 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            & git -C $d check-ignore -q -- $Name 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "Sti-ScratchDir: git would not ignore $d/$Name (a .gitignore re-includes it, or it is already tracked); refusing to write a draft there"
+                $global:LASTEXITCODE = 1
+                return
+            }
+        }
+    }
+    $global:LASTEXITCODE = 0
+}
+
+function Resolve-StiPath([string]$P) {
+    # .NET file APIs resolve relative paths against the process directory, not
+    # PowerShell's current location; anchor them to the latter.
+    if ([System.IO.Path]::IsPathRooted($P)) { return $P }
+    return (Join-Path (Get-Location).Path $P)
+}
+
 function Sti-DraftSave {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true, Position = 0)][AllowEmptyString()][string]$Path,
-        [Parameter(Mandatory = $true, Position = 1)][AllowEmptyString()][string]$Content
+        [Parameter(Position = 1, ValueFromPipeline = $true)][AllowEmptyString()][AllowNull()][string]$Content
     )
-    # Persist <content> to <path>, creating the parent dir. Only side effect is
-    # writing that one file (and the mkdir of its dir).
-    if ([string]::IsNullOrEmpty($Path)) {
-        Write-Error 'Sti-DraftSave: usage: Sti-DraftSave <path> <content>'
-        $global:LASTEXITCODE = 1
-        return
-    }
-    $dir = Split-Path -Parent $Path
-    try {
-        if ($dir) { New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null }
-        # -NoNewline mirrors bash `printf '%s'` (no trailing newline).
-        Set-Content -LiteralPath $Path -Value $Content -NoNewline -Encoding UTF8 -ErrorAction Stop
-        $global:LASTEXITCODE = 0
-    } catch {
-        Write-Error "Sti-DraftSave: cannot write scratch draft: $Path"
-        $global:LASTEXITCODE = 1
+    # Persist the draft to <path>, creating the parent dir via Sti-ScratchDir
+    # (so a .stride/ parent ignores itself). The content is -Content when it is
+    # given, else the pipeline (several piped strings are joined with "`n"),
+    # else redirected stdin — written byte for byte, never re-quoted.
+    begin { $parts = New-Object System.Collections.Generic.List[string] }
+    process { if ($PSBoundParameters.ContainsKey('Content')) { $parts.Add([string]$Content) } }
+    end {
+        if ([string]::IsNullOrEmpty($Path)) {
+            Write-Error 'Sti-DraftSave: usage: Sti-DraftSave <path> [<content>]  (content from the pipeline or stdin when omitted)'
+            $global:LASTEXITCODE = 1
+            return
+        }
+        if ($parts.Count -gt 0) { $text = $parts -join "`n" }
+        elseif ([Console]::IsInputRedirected) { $text = [Console]::In.ReadToEnd() }
+        else {
+            # No content argument, no pipeline and an interactive stdin: a usage
+            # error, never an empty draft (bash refuses a terminal stdin too).
+            Write-Error 'Sti-DraftSave: no content given (pass it as an argument, or pipe it in)'
+            $global:LASTEXITCODE = 1
+            return
+        }
+        # Like bash's dirname, a parent-less path lives in '.', and the
+        # fail-closed check runs for it too.
+        $dir = Split-Path -Parent $Path
+        if (-not $dir) { $dir = '.' }
+        Sti-ScratchDir $dir (Split-Path -Leaf $Path)
+        if ($LASTEXITCODE -ne 0) { return }
+        try {
+            # No BOM and no added newline, so bash and PowerShell write
+            # identical files (mirrors bash `printf '%s'`).
+            [System.IO.File]::WriteAllText((Resolve-StiPath $Path), $text, (New-Object System.Text.UTF8Encoding($false)))
+            $global:LASTEXITCODE = 0
+        } catch {
+            Write-Error "Sti-DraftSave: cannot write scratch draft: $Path"
+            $global:LASTEXITCODE = 1
+        }
     }
 }
 

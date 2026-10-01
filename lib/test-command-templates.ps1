@@ -41,6 +41,11 @@ $AlwaysSet     = @('HOME', 'STI_ROOT', 'STI_LIB')
 # OpenCode's @-reference pattern for command templates (1.16); a match naming
 # one of this bundle's agents becomes an agent call at expansion time.
 $FileRef       = '(?<![\w`])@(\.?[^\s`,.]*(?:\.[^\s`,.]+)*)'
+# Which lib/*.sh defines each sti_ function, read from the helpers themselves.
+$HelperFiles   = @{}
+foreach ($f in (Get-ChildItem -LiteralPath (Join-Path $Bundle 'lib') -Filter '*.sh')) {
+    foreach ($m in [regex]::Matches([System.IO.File]::ReadAllText($f.FullName), '(?m)^(sti_[a-z_]+)\(\)')) { $HelperFiles[$m.Groups[1].Value] = $f.Name }
+}
 $AgentNames    = @(Get-ChildItem -LiteralPath (Join-Path $Bundle 'agents') -Filter '*.md' | ForEach-Object { $_.BaseName })
 
 function Get-Blocks([string[]]$Lines) {
@@ -105,8 +110,8 @@ function Get-LintViolations([string]$Path) {
             }
         }
         foreach ($c in $stiCalls) {
-            $need = 'filename.sh'
-            if ($c[1].StartsWith('sti_draft')) { $need = 'draft.sh' }
+            $need = 'an unknown helper file'
+            if ($HelperFiles.ContainsKey($c[1])) { $need = $HelperFiles[$c[1]] }
             if ((-not $sourced.ContainsKey($need)) -or ($sourced[$need] -gt $c[0])) {
                 $out += "${where}: calls $($c[1]) without sourcing $need earlier in the same block"
             }

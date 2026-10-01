@@ -60,9 +60,12 @@ no() { FAIL=$(( FAIL + 1 )); printf 'FAIL  %s\n' "$1"; if [ -n "${2:-}" ]; then 
 
 # Agent names the @-reference rule protects: this bundle's agents/*.md.
 LINT_AGENTS="$(cd "$BUNDLE/agents" && ls *.md | sed 's/\.md$//' | paste -sd, -)"
-export LINT_AGENTS
+# Map every sti_ function to the lib/*.sh file that defines it.
+LINT_HELPERS="$(cd "$BUNDLE/lib" && grep -oE '^sti_[a-z_]+\(\)' *.sh | sed -E 's/^([^:]+):(sti_[a-z_]+)\(\)$/\2=\1/' | paste -sd, -)"
+export LINT_AGENTS LINT_HELPERS
 cat > "$TMP/lint.py" <<'PY'
 """Lint OpenCode command templates. Prints one line per violation."""
+import os
 import re
 import sys
 
@@ -80,12 +83,16 @@ ALWAYS_SET = {'HOME', 'STI_ROOT', 'STI_LIB'}
 # not follow a word character or a backtick. A match naming an agent becomes
 # an agent call at expansion time, before any step runs.
 FILE_REF = re.compile(r'(?<![\w`])@(\.?[^\s`,.]*(?:\.[^\s`,.]+)*)')
-import os
 AGENTS = {a for a in os.environ.get('LINT_AGENTS', '').split(',') if a}
 
 
+# Which lib/*.sh defines each sti_ function, from LINT_HELPERS
+# ("name=file,..."), built from the helpers' own definitions.
+HELPERS = dict(kv.split('=', 1) for kv in os.environ.get('LINT_HELPERS', '').split(',') if '=' in kv)
+
+
 def helper_file(fn):
-    return 'draft.sh' if fn.startswith('sti_draft') else 'filename.sh'
+    return HELPERS.get(fn, 'an unknown helper file')
 
 
 def blocks(text):
@@ -369,6 +376,10 @@ run_frag ideate-step4d-1.sh "SESSION_TS=$TS" "SLUG=bob-s-idea-dark-mode"
 expect_rc "ideate Step 4d: runs with no draft" 0
 expect_eq "ideate Step 4d: no existing draft" "${CARRY_EXISTING_DRAFT-unset}" ""
 expect_eq "ideate Step 4d: fresh draft path" "${CARRY_FRESH_DRAFT_PATH:-}" ".stride/$TS-bob-s-idea-dark-mode-draft.md"
+expect_eq "ideate Step 4d: makes .stride/ ignore itself" "$(cat "$PROJ/.stride/.gitignore" 2>/dev/null)" "*"
+printf 'draft prose\n' > "$PROJ/.stride/$TS-bob-s-idea-dark-mode-draft.md"
+expect_eq "ideate Step 4d: a draft never shows in git status" "$(git -C "$PROJ" status --porcelain --untracked-files=all -- .stride)" ""
+rm -f "$PROJ/.stride/$TS-bob-s-idea-dark-mode-draft.md"
 mkdir -p "$PROJ/.stride"
 printf 'old draft\n' > "$PROJ/.stride/2026-01-01T000000-bob-s-idea-dark-mode-draft.md"
 run_frag ideate-step4d-1.sh "SESSION_TS=$TS" "SLUG=bob-s-idea-dark-mode"

@@ -129,6 +129,103 @@ try {
     $abs = Sti-DraftFind (Join-Path $tmpDir 'no-such-dir') anything 2>$null
     if ([string]::IsNullOrEmpty($abs)) { Pass 'draft_find: absent scratch dir -> empty stdout + non-zero (no crash)' }
     else { Fail 'draft_find: leaked output for an absent dir' "[$abs]" }
+
+    # --- save from stdin ----------------------------------------------------
+    $tricky = "Quotes: `"double`" and 'single'`nBackticks: ``whoami```nDollars: `$HOME `${PATH} `$(id)`n`n"
+    $sdir = Join-Path (Join-Path $tmpDir 'stdin') '.stride'
+    $stdinDraft = Join-Path $sdir '2026-05-12T103000-stdin-draft.md'
+    $tricky | Sti-DraftSave $stdinDraft
+    if ([System.IO.File]::ReadAllText($stdinDraft) -ceq $tricky) { Pass 'draft_save: content on stdin is written byte for byte (quotes, backticks, dollars, trailing newlines)' }
+    else { Fail 'draft_save: stdin content was altered' }
+    $argvDraft = Join-Path $sdir '2026-05-12T103000-argv-draft.md'
+    Sti-DraftSave $argvDraft 'argv body'
+    Assert-Equal 'draft_save: the argv form still works' 'argv body' ([System.IO.File]::ReadAllText($argvDraft))
+    $emptyDraft = Join-Path $sdir '2026-05-12T103000-empty-draft.md'
+    Sti-DraftSave $emptyDraft ''
+    if ((Test-Path -LiteralPath $emptyDraft) -and ((Get-Item -LiteralPath $emptyDraft).Length -eq 0)) { Pass 'draft_save: an explicit empty argument writes an empty draft (stdin is not read)' }
+    else { Fail 'draft_save: an explicit empty argument did not write an empty draft' }
+
+    # --- self-ignoring scratch dir ------------------------------------------
+    $repo = Join-Path $tmpDir 'fresh repo'
+    New-Item -ItemType Directory -Path $repo | Out-Null
+    & git -C $repo init -q
+    Push-Location -LiteralPath $repo
+    try {
+        "draft prose`n" | Sti-DraftSave '.stride/2026-05-12T103000-ignored-draft.md'
+        Assert-Equal "scratch_dir: the first save creates .stride/.gitignore containing '*'" "*`n" ([System.IO.File]::ReadAllText((Join-Path (Join-Path $repo '.stride') '.gitignore')))
+        Assert-Equal 'scratch_dir: git status in a fresh repo shows nothing under .stride/' '' (((& git -C $repo status --porcelain --untracked-files=all) -join "`n").Trim())
+        [System.IO.File]::WriteAllText((Join-Path (Join-Path $repo '.stride') '.gitignore'), "# mine`n*.md`n")
+        Sti-DraftSave '.stride/2026-05-12T110000-ignored-draft.md' 'again'
+        Assert-Equal 'scratch_dir: an existing .stride/.gitignore is left unchanged' "# mine`n*.md`n" ([System.IO.File]::ReadAllText((Join-Path (Join-Path $repo '.stride') '.gitignore')))
+    } finally { Pop-Location }
+    Push-Location -LiteralPath $tmpDir
+    try {
+        Sti-ScratchDir 'notes'
+        if ((Test-Path -LiteralPath (Join-Path $tmpDir 'notes')) -and -not (Test-Path -LiteralPath (Join-Path (Join-Path $tmpDir 'notes') '.gitignore'))) { Pass 'scratch_dir: a directory not named .stride gets no .gitignore' }
+        else { Fail 'scratch_dir: wrote a .gitignore outside .stride/' }
+    } finally { Pop-Location }
+    Push-Location -LiteralPath $repo
+    try {
+        $gi = Join-Path (Join-Path $repo '.stride') '.gitignore'
+        [System.IO.File]::WriteAllText($gi, "!*-draft.md`n")
+        Sti-DraftSave '.stride/2026-05-12T120000-reincluded-draft.md' 'x' 2>$null
+        if (($LASTEXITCODE -ne 0) -and -not (Test-Path -LiteralPath (Join-Path (Join-Path $repo '.stride') '2026-05-12T120000-reincluded-draft.md'))) { Pass 'scratch_dir: refuses a draft that an existing .stride/.gitignore re-includes' }
+        else { Fail 'scratch_dir: refuses a draft that an existing .stride/.gitignore re-includes' }
+        [System.IO.File]::WriteAllText($gi, "*`n")
+        [System.IO.File]::WriteAllText((Join-Path (Join-Path $repo '.stride') '2026-05-12T130000-tracked-draft.md'), "tracked`n")
+        & git -C $repo add -f .stride/2026-05-12T130000-tracked-draft.md
+        Sti-DraftSave '.stride/2026-05-12T130000-tracked-draft.md' 'new prose' 2>$null
+        if ($LASTEXITCODE -ne 0) { Pass 'scratch_dir: refuses to write over an already-tracked draft' }
+        else { Fail 'scratch_dir: refuses to write over an already-tracked draft' }
+        $res = Sti-DraftFind .stride tracked 2>$null
+        if ([string]::IsNullOrEmpty($res)) { Pass 'draft_find: never offers a tracked draft for resume' } else { Fail 'draft_find: never offers a tracked draft for resume' "[$res]" }
+        $linkOk = $true
+        try { New-Item -ItemType SymbolicLink -Path (Join-Path (Join-Path $repo '.stride') '2026-05-12T140000-linkdraft-draft.md') -Target $argvDraft -ErrorAction Stop | Out-Null } catch { $linkOk = $false }
+        if ($linkOk) {
+            $res = Sti-DraftFind .stride linkdraft 2>$null
+            if ([string]::IsNullOrEmpty($res)) { Pass 'draft_find: never offers a symlinked draft for resume' } else { Fail 'draft_find: never offers a symlinked draft for resume' "[$res]" }
+        } else { Pass 'draft_find: never offers a symlinked draft for resume (skipped: cannot create symlinks here)' }
+    } finally { Pop-Location }
+    Push-Location -LiteralPath $repo
+    try {
+        Sti-DraftSave '2026-05-12T150000-bare-draft.md' 'x' 2>$null
+        if ($LASTEXITCODE -ne 0) { Pass 'draft_save: a path with no directory part is checked too (refused when git would track it)' }
+        else { Fail 'draft_save: a path with no directory part is checked too (refused when git would track it)' }
+    } finally { Pop-Location }
+    $dangle = Join-Path $tmpDir 'dangle'
+    New-Item -ItemType Directory -Force -Path (Join-Path $dangle '.stride') | Out-Null
+    $dangleOk = $true
+    try { New-Item -ItemType SymbolicLink -Path (Join-Path (Join-Path $dangle '.stride') '.gitignore') -Target (Join-Path $dangle 'planted-gitignore') -ErrorAction Stop | Out-Null } catch { $dangleOk = $false }
+    if ($dangleOk) {
+        Push-Location -LiteralPath $dangle
+        try { Sti-ScratchDir '.stride' 2>$null } finally { Pop-Location }
+        if (-not (Test-Path -LiteralPath (Join-Path $dangle 'planted-gitignore'))) { Pass 'scratch_dir: never writes through a dangling .stride/.gitignore symlink' }
+        else { Fail 'scratch_dir: never writes through a dangling .stride/.gitignore symlink' }
+    } else { Pass 'scratch_dir: never writes through a dangling .stride/.gitignore symlink (skipped: cannot create symlinks here)' }
+    $elsewhere = Join-Path $tmpDir 'elsewhere'
+    $linked = Join-Path $tmpDir 'linked'
+    New-Item -ItemType Directory -Path $elsewhere, $linked | Out-Null
+    $canLink = $true
+    try { New-Item -ItemType SymbolicLink -Path (Join-Path $linked '.stride') -Target $elsewhere -ErrorAction Stop | Out-Null } catch { $canLink = $false }
+    if ($canLink) {
+        Sti-DraftSave (Join-Path (Join-Path $linked '.stride') '2026-05-12T103000-x-draft.md') 'x' 2>$null
+        if (($LASTEXITCODE -ne 0) -and -not (Test-Path -LiteralPath (Join-Path $elsewhere '2026-05-12T103000-x-draft.md'))) { Pass 'scratch_dir: a symlinked .stride is refused and nothing is written' }
+        else { Fail 'scratch_dir: a symlinked .stride is refused and nothing is written' }
+    } else {
+        Pass 'scratch_dir: a symlinked .stride is refused and nothing is written (skipped: cannot create symlinks here)'
+    }
+    $roDir = Join-Path (Join-Path $tmpDir 'ro') '.stride'
+    New-Item -ItemType Directory -Path $roDir -Force | Out-Null
+    $onWindows = [System.Environment]::OSVersion.Platform -eq 'Win32NT'
+    if (-not $onWindows) {
+        & chmod 500 $roDir
+        Sti-DraftSave (Join-Path $roDir '2026-05-12T103000-ro-draft.md') 'x' 2>$null
+        if ($LASTEXITCODE -ne 0) { Pass 'draft_save: a read-only .stride/ is reported as an error' }
+        else { Fail 'draft_save: a read-only .stride/ is reported as an error' }
+        & chmod 700 $roDir
+    } else {
+        Pass 'draft_save: a read-only .stride/ is reported as an error (skipped on Windows)'
+    }
 } finally {
     Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
 }

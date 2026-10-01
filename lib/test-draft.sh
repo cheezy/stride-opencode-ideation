@@ -198,6 +198,101 @@ else
   no "draft_find: leaked output for an absent dir: $ABS"
 fi
 
+# --- save from stdin -----------------------------------------------------------
+
+TRICKY="$(printf 'Quotes: "double" and '"'"'single'"'"'\nBackticks: `whoami`\nDollars: $HOME ${PATH} $(id)\n\n')"
+TRICKY="$TRICKY
+"
+SDIR="$TMP/stdin/.stride"
+printf '%s' "$TRICKY" | sti_draft_save "$SDIR/2026-05-12T103000-stdin-draft.md"
+if [ "$(cat "$SDIR/2026-05-12T103000-stdin-draft.md"; printf .)" = "${TRICKY}." ]; then
+  ok "draft_save: content on stdin is written byte for byte (quotes, backticks, dollars, trailing newlines)"
+else
+  no "draft_save: stdin content was altered"
+fi
+sti_draft_save "$SDIR/2026-05-12T103000-argv-draft.md" "argv body"
+assert_eq "draft_save: the argv form still works" "$(cat "$SDIR/2026-05-12T103000-argv-draft.md")" "argv body"
+sti_draft_save "$SDIR/2026-05-12T103000-empty-draft.md" "" < /dev/null
+if [ -f "$SDIR/2026-05-12T103000-empty-draft.md" ] && [ ! -s "$SDIR/2026-05-12T103000-empty-draft.md" ]; then
+  ok "draft_save: an explicit empty argument writes an empty draft (stdin is not read)"
+else
+  no "draft_save: an explicit empty argument did not write an empty draft"
+fi
+
+# --- self-ignoring scratch dir ---------------------------------------------------
+
+REPO="$TMP/fresh repo"
+mkdir -p "$REPO"
+git -C "$REPO" init -q
+( cd "$REPO" && printf 'draft prose\n' | sti_draft_save .stride/2026-05-12T103000-ignored-draft.md )
+assert_eq "scratch_dir: the first save creates .stride/.gitignore containing '*'" "$(cat "$REPO/.stride/.gitignore")" "*"
+assert_eq "scratch_dir: git status in a fresh repo shows nothing under .stride/" "$(git -C "$REPO" status --porcelain --untracked-files=all)" ""
+printf '# mine\n*.md\n' > "$REPO/.stride/.gitignore"
+( cd "$REPO" && sti_draft_save .stride/2026-05-12T110000-ignored-draft.md "again" )
+assert_eq "scratch_dir: an existing .stride/.gitignore is left unchanged" "$(cat "$REPO/.stride/.gitignore")" "$(printf '# mine\n*.md')"
+( cd "$TMP" && sti_scratch_dir notes > /dev/null )
+if [ -d "$TMP/notes" ] && [ ! -e "$TMP/notes/.gitignore" ]; then
+  ok "scratch_dir: a directory not named .stride gets no .gitignore"
+else
+  no "scratch_dir: wrote a .gitignore outside .stride/"
+fi
+printf '!*-draft.md\n' > "$REPO/.stride/.gitignore"
+if ( cd "$REPO" && sti_draft_save .stride/2026-05-12T120000-reincluded-draft.md "x" 2>/dev/null ); then
+  no "scratch_dir: refuses a draft that an existing .stride/.gitignore re-includes"
+elif [ -e "$REPO/.stride/2026-05-12T120000-reincluded-draft.md" ]; then
+  no "scratch_dir: refuses a draft that an existing .stride/.gitignore re-includes"
+else
+  ok "scratch_dir: refuses a draft that an existing .stride/.gitignore re-includes"
+fi
+printf '*\n' > "$REPO/.stride/.gitignore"
+printf 'tracked\n' > "$REPO/.stride/2026-05-12T130000-tracked-draft.md"
+git -C "$REPO" add -f .stride/2026-05-12T130000-tracked-draft.md
+if ( cd "$REPO" && sti_draft_save .stride/2026-05-12T130000-tracked-draft.md "new prose" 2>/dev/null ); then
+  no "scratch_dir: refuses to write over an already-tracked draft"
+else
+  ok "scratch_dir: refuses to write over an already-tracked draft"
+fi
+RES="$(cd "$REPO" && sti_draft_find .stride tracked 2>/dev/null || true)"
+assert_eq "draft_find: never offers a tracked draft for resume" "$RES" ""
+ln -s "$TMP/stdin/.stride/2026-05-12T103000-argv-draft.md" "$REPO/.stride/2026-05-12T140000-linkdraft-draft.md"
+RES="$(cd "$REPO" && sti_draft_find .stride linkdraft 2>/dev/null || true)"
+assert_eq "draft_find: never offers a symlinked draft for resume" "$RES" ""
+if ( cd "$REPO" && sti_draft_save 2026-05-12T150000-bare-draft.md "x" 2>/dev/null ); then
+  no "draft_save: a path with no directory part is checked too (refused when git would track it)"
+else
+  ok "draft_save: a path with no directory part is checked too (refused when git would track it)"
+fi
+DANGLE="$TMP/dangle"
+mkdir -p "$DANGLE/.stride"
+ln -s "$DANGLE/planted-gitignore" "$DANGLE/.stride/.gitignore"
+( cd "$DANGLE" && sti_scratch_dir .stride > /dev/null 2>&1 )
+if [ ! -e "$DANGLE/planted-gitignore" ]; then
+  ok "scratch_dir: never writes through a dangling .stride/.gitignore symlink"
+else
+  no "scratch_dir: never writes through a dangling .stride/.gitignore symlink"
+fi
+mkdir -p "$TMP/elsewhere" "$TMP/linked"
+ln -s "$TMP/elsewhere" "$TMP/linked/.stride"
+if sti_draft_save "$TMP/linked/.stride/2026-05-12T103000-x-draft.md" "x" 2>/dev/null; then
+  no "scratch_dir: wrote a draft through a symlinked .stride"
+elif [ -e "$TMP/elsewhere/2026-05-12T103000-x-draft.md" ]; then
+  no "scratch_dir: the draft landed behind the symlink"
+else
+  ok "scratch_dir: a symlinked .stride is refused and nothing is written"
+fi
+if [ "$(id -u)" != "0" ]; then
+  mkdir -p "$TMP/ro/.stride"
+  chmod 500 "$TMP/ro/.stride"
+  if sti_draft_save "$TMP/ro/.stride/2026-05-12T103000-ro-draft.md" "x" 2>/dev/null; then
+    no "draft_save: a read-only .stride/ is reported as an error"
+  else
+    ok "draft_save: a read-only .stride/ is reported as an error"
+  fi
+  chmod 700 "$TMP/ro/.stride"
+else
+  ok "draft_save: a read-only .stride/ is reported as an error (skipped as root)"
+fi
+
 # --- summary ----------------------------------------------------------------
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

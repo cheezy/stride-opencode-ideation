@@ -8,8 +8,13 @@ Prints two lines to stdout (in this exact order):
     STRIDE_API_URL=<url>
     STRIDE_API_TOKEN=<token>
 
-The calling shell can source these directly:
+Each value is shell-quoted (shlex.quote), so a calling shell can eval the
+output without executing anything the auth file contains — a URL holding
+`&`, `;` or `$(...)` evals back to the literal string:
     eval "$(python3 lib/read_auth.py .stride_auth.md)"
+Plain values (no shell metacharacters) are printed unquoted, exactly as
+before. /stridify does not eval this output itself: it runs
+lib/ship.sh, which reads auth, POSTs and renders in one process.
 
 Expected file format (markdown bullets with backticks):
     - **API URL:** `https://www.stridelikeaboss.com`
@@ -23,6 +28,7 @@ the user sees on failure).
 """
 
 import re
+import shlex
 import sys
 
 
@@ -104,9 +110,11 @@ def main(argv: "list[str]") -> "None":
         )
         sys.exit(1)
 
-    # Print as a sourceable two-line block.
-    sys.stdout.write(f"STRIDE_API_URL={url}\n")
-    sys.stdout.write(f"STRIDE_API_TOKEN={token}\n")
+    # Print as a sourceable two-line block. shlex.quote makes each value
+    # eval-safe: the URL pattern admits any non-space character, including
+    # `&`, `;` and `$(...)`, which an unquoted eval would execute.
+    sys.stdout.write(f"STRIDE_API_URL={shlex.quote(url)}\n")
+    sys.stdout.write(f"STRIDE_API_TOKEN={shlex.quote(token)}\n")
 
 
 if __name__ == "__main__":

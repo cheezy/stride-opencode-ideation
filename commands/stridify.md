@@ -128,35 +128,19 @@ fi
 
 ### Step 3: Preflight auth from `.stride_auth.md`
 
-Read auth BEFORE the expensive subagent dispatch so a misconfigured `.stride_auth.md` fails fast without first burning a decomposer pass and writing a batch JSON that can't be shipped. Locate `.stride_auth.md` in the project directory, resolved via the same fallback chain the companion `stride-opencode` plugin uses — `${OPENCODE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}` (OpenCode-native variable first, `CLAUDE_PROJECT_DIR` kept as a compat fallback for sessions that set the legacy variable, current directory as the last resort). It is the same `.stride_auth.md` the Stride workflow reads. Invoke `lib/read_auth.py` via `bash` and source its output:
+Read auth BEFORE the expensive subagent dispatch so a misconfigured `.stride_auth.md` fails fast without first burning a decomposer pass and writing a batch JSON that can't be shipped. Run the ship script's preflight mode:
 
 ```bash
-AUTH_FILE="${OPENCODE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}/.stride_auth.md"
-if [ ! -f "$AUTH_FILE" ]; then
-  echo "stride-ideation: .stride_auth.md not found at $AUTH_FILE" >&2
-  exit 1
-fi
-
-# read_auth.py emits two STRIDE_API_URL= / STRIDE_API_TOKEN= lines.
-# Source them, then unset the helper variable so the token isn't visible
-# to subsequent `set` / `env` dumps inside the same shell.
-AUTH_OUT="$(python3 "<plugin-root>/lib/read_auth.py" "$AUTH_FILE")" || {
-  echo "stride-ideation: failed to read auth from $AUTH_FILE" >&2
-  exit 1
-}
-eval "$AUTH_OUT"
-unset AUTH_OUT
+bash "<plugin-root>/lib/ship.sh" --check-auth || exit 1
 ```
 
-**Never log the token, ever, even in error paths.** This includes:
-- Do NOT echo `$STRIDE_API_TOKEN` for diagnostics.
-- Do NOT include the token in any error message the user sees.
-- Do NOT pass the token on the command line of a process visible to `ps` — `curl -H "Authorization: Bearer $STRIDE_API_TOKEN"` is fine because curl reads the header value and does not expose it via `/proc/<pid>/cmdline` after parse.
-- Do NOT save curl output that might echo the request headers back (`curl -v` dumps headers to stderr; never use `-v` here).
+`--check-auth` locates `.stride_auth.md` — `$STRIDE_AUTH_FILE` if set, else the file at the git toplevel of the working directory (so a run from a subdirectory of the project still finds it), else the one in the current directory — reads it through `lib/read_auth.py`, prints one `stride-ideation: auth file OK` line naming the file and the API URL, and POSTs nothing. It checks that the file parses, not that the server accepts the token — a revoked token surfaces as a 401 in Step 9. On failure it exits non-zero after `lib/read_auth.py`'s own stderr, which is engineered to never contain the token value — surface that verbatim and stop.
 
-If `lib/read_auth.py` exits non-zero, surface its stderr (which is engineered to never contain the token value) and stop.
-
-`$STRIDE_API_URL` and `$STRIDE_API_TOKEN` are now in the environment for use by the POST in Step 9. The token survives until Step 9 explicitly unsets it after the curl call.
+**The token never enters this shell.** OpenCode's bash tool starts a fresh process for every call, so nothing — the token included — survives from this step to Step 9. The preflight runs in its own process and exports nothing; Step 9 runs the same script again, which reads auth afresh in the process that makes the POST. There is nothing to `eval` here. In particular:
+- Do NOT read `.stride_auth.md` yourself, and do NOT `eval` or `source` `lib/read_auth.py` output in this shell. (Its output is shell-quoted, so an eval would no longer execute anything the file contains, but the script makes the eval unnecessary.)
+- Do NOT echo the token for diagnostics, and do NOT include it in any message the user sees.
+- Do NOT put the token on any process's command line: argv is visible to `ps` for the life of the process, so `curl -H "Authorization: Bearer <token>"` exposes it. `lib/ship.sh` hands it to curl as a config on curl's stdin (`curl -K -`), so it is on no command line and in no file.
+- Do NOT use `curl -v` (or anything else that echoes request headers) against the Stride API.
 
 ### Step 4: Inherit the session timestamp and slug
 
@@ -352,10 +336,13 @@ computed by Step 5; for the run that produced this file, that path was
 
 to confirm the JSON parses against the validator's five named checks
 (parse_error / wrong_root_key / empty_goals / goal_missing_field /
-bad_dependency_index). On success, follow Step 9 of `commands/stridify.md`
-manually: strip audit fields via `lib/strip_audit_fields.py`, POST the result
-to `$STRIDE_API_URL/api/tasks/batch` with a Bearer token from
-`.stride_auth.md`, and render the created identifiers per Step 10.
+bad_dependency_index). On success, ship it exactly as Step 9 of
+`commands/stridify.md` does:
+
+    bash <plugin-root>/lib/ship.sh <BATCH_TARGET_PATH>
+
+which reads `.stride_auth.md`, strips the audit fields, POSTs the batch and
+renders the created identifiers in one process — never a hand-written curl.
 
 This sibling file contains NO authentication material. The Stride API token
 never enters the decomposer prompt (the subagent has no API access), so there
@@ -374,8 +361,8 @@ Last error from the final attempt:
 
 To recover: paste the prompt block from that file into a fresh
 session; save the JSON response as <TARGET_PATH>; then run
-`python3 lib/validate_batch.py <TARGET_PATH>` and the manual POST per Step 9
-of commands/stridify.md.
+`python3 lib/validate_batch.py <TARGET_PATH>` and
+`bash lib/ship.sh <TARGET_PATH>` (Step 9 of commands/stridify.md).
 
 The Stride API POST was NOT attempted.
 ```
@@ -471,7 +458,7 @@ Use `git add <path>` (not `git add -A` or `git commit -a`) to avoid sweeping unr
 
 The batch JSON is on disk and committed, but nothing has been sent to Stride yet. Before the Step 9 POST, show the human the goal/task tree that is about to be created and require explicit approval — unless `AUTO_APPROVE` was set in Step 1, in which case this entire step is skipped and control falls straight through to Step 9. This is the single point where a human can catch a bad decomposition before it lands in the workspace.
 
-**(8.5a) Render the tree from the on-disk batch JSON.** Read `$BATCH_PATH` (never the token-bearing environment) and print each goal title, its task count, its task titles, and the cross-goal claim order from `decomposition_notes`. The render reads only the on-disk JSON, which contains no auth material — do NOT enrich it from `$STRIDE_API_TOKEN` or any other secret, and never print the token. Reuse the Step 10 identifier-render style, adapted to the pre-POST on-disk shape (no identifiers exist yet — the Stride API assigns G/W identifiers on POST):
+**(8.5a) Render the tree from the on-disk batch JSON.** Read `$BATCH_PATH` (never `.stride_auth.md`) and print each goal title, its task count, its task titles, and the cross-goal claim order from `decomposition_notes`. The render reads only the on-disk JSON, which contains no auth material — do NOT enrich it from the auth file or any other secret, and never print the token. Reuse the Step 10 identifier-render style, adapted to the pre-POST on-disk shape (no identifiers exist yet — the Stride API assigns G/W identifiers on POST):
 
 ```bash
 python3 - "$BATCH_PATH" <<'PY'
@@ -510,145 +497,51 @@ On **decline**, stop cleanly:
 
 ```bash
 echo "stride-ideation: declined. The batch JSON is on disk at $BATCH_PATH" >&2
-echo "(committed in git) for a later manual ship. No POST was attempted." >&2
+echo "(committed in git). Ship it later, unchanged, with: bash <plugin-root>/lib/ship.sh \"$BATCH_PATH\"" >&2
 exit 0
 ```
 
-The decline path is a deliberate user choice, not a failure — exit `0`. **Do NOT delete or rewrite the on-disk batch JSON on decline**: it is the recovery artifact, already committed, and a future `/stridify` re-run or a hand-curl per Step 9 can ship it unchanged. The token is never printed in the preview or the gate output, and no POST is attempted before approval.
+The decline path is a deliberate user choice, not a failure — exit `0`. **Do NOT delete or rewrite the on-disk batch JSON on decline**: it is the recovery artifact, already committed, and `lib/ship.sh` per Step 9 can ship it unchanged later (a `/stridify` re-run would decompose again and produce a different batch). The token is never printed in the preview or the gate output, and no POST is attempted before approval.
 
-### Step 9: Strip local-audit fields, POST, and branch on HTTP status
+### Step 9: Ship the batch — strip, POST, branch on HTTP status, render
 
-Three sub-steps that together send the payload to Stride.
-
-**(9a) Strip local-audit fields.** The batch JSON on disk contains three local-audit fields (`source_spec`, `source_spec_sha256`, `decomposition_notes`) that the Stride API does not accept. Strip them via `lib/strip_audit_fields.py` before sending:
+One invocation does all of it, in one process:
 
 ```bash
-API_PAYLOAD="$(python3 "<plugin-root>/lib/strip_audit_fields.py" "$BATCH_PATH")" || {
-  echo "stride-ideation: failed to prepare API payload from $BATCH_PATH" >&2
-  exit 1
-}
+bash "<plugin-root>/lib/ship.sh" "$BATCH_PATH"
 ```
 
-`$API_PAYLOAD` is the JSON to POST. The on-disk file is unchanged — stripping happens in memory only, so the local audit fields stay available for tools that read the JSON later.
+Pass the batch path explicitly (each bash call is a fresh shell, so `BATCH_PATH` from Step 8 is a value you carry forward, not a variable that still exists). Run it once and relay its output. **Exit 0 means the batch exists in Stride — never re-run it or hand-curl the batch after an exit 0**, even when the success table is missing (see the 9c table). Exit 1 means nothing was created by this call, or Stride rejected it; the user fixes the cause and re-invokes. Exit 2 is a usage error (nothing was sent). Exit 129, 130 or 143 means the script was interrupted (`HUP`, `INT`, `TERM`) — if that happened while the POST was in flight the batch **may already exist**, so do not re-run: tell the user to check the Stride workspace's Backlog column first. The script's stdout and stderr never contain the token — it turns off a caller's `xtrace` and `allexport`, and scrubs the token and any `Bearer <value>` from every body or curl message it prints — so relaying its output verbatim is safe.
 
-**(9b) POST to the Stride batch endpoint.**
+What the script does, in order (documented here so the behavior is reviewable without reading the script):
 
-```bash
-RESPONSE_FILE="$(mktemp -t stride_stridify_response.XXXXXX.json)"
-CURL_ERR_FILE="$(mktemp -t stride_stridify_curl_err.XXXXXX)"
-HTTP_CODE="$(
-  curl -sS -X POST \
-    -H "Authorization: Bearer $STRIDE_API_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "$API_PAYLOAD" \
-    "$STRIDE_API_URL/api/tasks/batch" \
-    -o "$RESPONSE_FILE" \
-    -w '%{http_code}' \
-    2>"$CURL_ERR_FILE"
-)"
-CURL_EXIT=$?
-unset STRIDE_API_TOKEN  # paranoia: drop the token from the shell as soon as POST returns
-```
+**(9a) Strip local-audit fields.** This runs before auth is read, so no child process the script starts before the POST ever sees the token. The batch JSON on disk contains three local-audit fields (`source_spec`, `source_spec_sha256`, `decomposition_notes`) that the Stride API does not accept. `lib/strip_audit_fields.py` removes them into a mode-600 temp file under the system temp dir; the on-disk batch JSON is unchanged, so the audit fields stay available for tools that read it later. The script then runs `lib/validate_batch.py` on that exact payload, so a file edited after Step 8 still cannot ship unvalidated. On failure: a one-line `stride-ideation:` message, exit 1, nothing POSTed.
 
-The `-sS` flags silence the progress bar but keep error output; we capture that stderr to `$CURL_ERR_FILE`. `-w '%{http_code}'` writes the HTTP status code to stdout; the response body goes to `$RESPONSE_FILE` via `-o`. Never use `-v` here — verbose mode would echo the Authorization header.
+The per-goal `created_by_agent` stamped in Step 8b is deliberately **not** in the strip set — it is a create-payload field the API accepts and persists for attribution, not a local audit field. It must survive this step and reach the wire; adding it to `lib/strip_audit_fields.py`'s strip list would silently un-attribute every shipped batch.
 
-If `curl` failed at the transport layer (`CURL_EXIT != 0`, or `HTTP_CODE` is empty / `"000"`), the user gets curl's **verbatim** error message — never a generic "something went wrong" wrapper. The actual cause (DNS resolution failure, connection refused, TLS handshake error, timeout, etc.) is the load-bearing diagnostic.
+**(9b) POST to the Stride batch endpoint.** Auth is read afresh through `lib/read_auth.py` (same lookup and same failure messages as Step 3). A payload that contains the configured API token is refused before anything is sent. The `Authorization` header is piped to curl as a config on its stdin (`curl -K -`, written by the shell's `printf` builtin), so the token is never on argv and never on disk; the payload goes with `--data-binary @<file>`, never `-d "<json>"` — so neither the token nor the batch appears in `ps`, and a large batch cannot hit the argument-length limit. curl runs with `-q` first (no `~/.curlrc`), with `-g` (a `{}` or `[]` in the URL is never expanded into a repeated POST), and never with `-v`. Every temp file — payload, response body, curl stderr — is created mode 600 under the system temp dir and removed on success, on failure, and on interrupt (`INT`, `TERM`, `HUP`).
 
-```bash
-if [ "$CURL_EXIT" -ne 0 ] || [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
-  echo "stride-ideation: HTTP request failed before the Stride API responded:" >&2
-  if [ -s "$CURL_ERR_FILE" ]; then
-    # curl wrote a real error — surface it verbatim. curl's messages are
-    # already user-friendly ("Could not resolve host: stridelikeaboss.com",
-    # "Failed to connect to ... port 443: Connection refused", etc.).
-    cat "$CURL_ERR_FILE" >&2
-  else
-    # curl exited non-zero with no stderr — uncommon but possible. Print
-    # the numeric exit code so the user has something to look up.
-    echo "  curl exited with status $CURL_EXIT and no stderr output." >&2
-  fi
-  rm -f "$RESPONSE_FILE" "$CURL_ERR_FILE"
-  exit 1
-fi
-rm -f "$CURL_ERR_FILE"
-```
+If `curl` failed at the transport layer (non-zero exit, or an empty / `000` status), the script prints `stride-ideation: HTTP request failed before the Stride API responded:` followed by curl's **verbatim** stderr (token-scrubbed) — never a generic "something went wrong" wrapper; the actual cause (DNS resolution failure, connection refused, TLS handshake error, timeout) is the load-bearing diagnostic. Exit 1.
 
-The on-disk batch JSON written in Step 8 is the recovery artifact: if the POST fails for any reason, the user has a complete, audited batch document on disk and in git. A future invocation, a hand-curl, or a follow-up tool can ship that file without re-running the decomposer.
+The on-disk batch JSON written in Step 8 is the recovery artifact: if the POST fails for any reason, the user has a complete, audited batch document on disk and in git, and `lib/ship.sh` can ship that file later without re-running the decomposer.
 
-**(9c) Branch on the HTTP status code.** **Hard rule for every non-2xx branch: print the response body verbatim.** Do NOT parse it, do NOT reformat it, do NOT summarize it. The user needs the literal bytes the Stride API returned to debug the failure. Stride's 422 responses in particular carry a `details` array naming the offending field(s); rewriting the JSON would strip that signal.
+**(9c) Branch on the HTTP status code.** **Hard rule for every non-2xx branch: the response body is printed verbatim.** It is not parsed, reformatted, or summarized — the user needs the literal bytes the Stride API returned to debug the failure. Stride's 422 responses in particular carry a `details` array naming the offending field(s). **The one exception is the token:** before printing, the script replaces the token (also in JSON-escaped or percent-encoded form), anything shaped like a Stride token, and the value of any `Bearer <value>` with `[REDACTED]`, because a development server's debug error page echoes the request headers.
 
-| Status code | Action |
+| Status code | What `lib/ship.sh` does |
 |---|---|
-| 2xx | Continue to Step 10 (render the created identifiers). |
-| 4xx | One-line header naming the status code, then the full response body verbatim. Exit non-zero. The body typically looks like `{"error": "...", "details": {...}}` or `{"errors": {"field": ["message"]}}` — both shapes are printed unchanged so the user sees the field-level diagnostic Stride emitted. |
-| 5xx | One-line header naming the status code, then the full response body verbatim. Exit non-zero. The user should retry manually or report — `/stridify` does NOT retry, does NOT exponential-backoff, does NOT rate-limit. |
-| Other (1xx, 3xx) | One-line header naming the status code, then the full response body verbatim. Exit non-zero. These shouldn't reach this code path (curl follows redirects internally and the Stride API never returns 1xx), but if one shows up we surface it rather than swallow it. |
+| 2xx | Renders the created identifiers (Step 10) and exits 0. |
+| 2xx, body not renderable | The batch **was created**. Prints `stride-ideation: the batch was created (HTTP <code>), but the response could not be rendered — do NOT re-run /stridify ...`, then the body verbatim, and exits **0**. Relay it and stop: re-running would create every goal twice. |
+| 2xx listing no goals | Prints `stride-ideation: Stride answered HTTP <code> but listed no created goals ...`, then the body, and exits **0**. Have the user check the Backlog column before re-running. |
+| 4xx | `stride-ideation: Stride API rejected the batch (HTTP <code>). Response body:`, then the full body verbatim. Exit 1. |
+| 5xx | `stride-ideation: Stride API returned HTTP <code>. Response body:`, then the full body verbatim. Exit 1. `/stridify` does NOT retry, does NOT exponential-backoff, does NOT rate-limit. |
+| Other (1xx, 3xx) | `stride-ideation: unexpected HTTP status <code>. Response body:`, then the full body verbatim. Exit 1. |
+| Transport failure | As in 9b: the header line plus curl's verbatim stderr. Exit 1. |
 
-```bash
-case "$HTTP_CODE" in
-  2*)
-    : # fall through to Step 10
-    ;;
-  4*)
-    echo "stride-ideation: Stride API rejected the batch (HTTP $HTTP_CODE). Response body:" >&2
-    cat "$RESPONSE_FILE" >&2
-    echo >&2
-    rm -f "$RESPONSE_FILE"
-    exit 1
-    ;;
-  5*)
-    echo "stride-ideation: Stride API returned HTTP $HTTP_CODE. Response body:" >&2
-    cat "$RESPONSE_FILE" >&2
-    echo >&2
-    rm -f "$RESPONSE_FILE"
-    exit 1
-    ;;
-  *)
-    echo "stride-ideation: unexpected HTTP status $HTTP_CODE. Response body:" >&2
-    cat "$RESPONSE_FILE" >&2
-    echo >&2
-    rm -f "$RESPONSE_FILE"
-    exit 1
-    ;;
-esac
-```
-
-**No retries.** When `/stridify` fails on a 4xx or 5xx, the user is the retry mechanism: they read the verbatim body, fix the underlying issue (regenerate the requirements doc and re-run `/stridify`, hand-edit the on-disk batch JSON and curl it manually, wait out a transient 5xx, etc.), and re-invoke. Stride does not guarantee per-task idempotency on a partially-failed batch, so an automatic retry could double-create some tasks while leaving others to fail again. Manual retry is the safer contract.
+**No retries.** When `/stridify` fails on a 4xx or 5xx, the user is the retry mechanism: they read the verbatim body, fix the underlying issue (regenerate the requirements doc and re-run `/stridify`, hand-edit the on-disk batch JSON and ship it with `lib/ship.sh`, wait out a transient 5xx, etc.), and re-invoke. Stride does not guarantee per-task idempotency on a partially-failed batch, so an automatic retry could double-create some tasks while leaving others to fail again. Manual retry is the safer contract.
 
 ### Step 10: Render the created identifiers and print the terminal message
 
-On 2xx the Stride API returns the goals and child tasks with their auto-generated identifiers (G-prefix for goals, W-prefix for work tasks, D-prefix for defects). Parse the response and print a readable table:
-
-```bash
-python3 - "$RESPONSE_FILE" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], "r", encoding="utf-8") as fp:
-    data = json.load(fp)
-
-# Response shape: {"data": {"goals": [{ "identifier": "G99", "title": "...",
-#                                       "tasks": [{"identifier": "W404", "title": "..."}, ...]}, ...]}}
-# OR the same shape at the root without the "data" wrapper. Be permissive.
-container = data.get("data", data)
-goals = container.get("goals", [])
-
-print()
-print("Created goals and tasks:")
-print()
-for goal in goals:
-    gid = goal.get("identifier", "?")
-    title = goal.get("title", "(no title)")
-    print(f"  {gid:>6}  {title}")
-    for task in goal.get("tasks", []) or []:
-        tid = task.get("identifier", "?")
-        ttitle = task.get("title", "(no title)")
-        print(f"  {tid:>6}    {ttitle}")
-print()
-PY
-
-rm -f "$RESPONSE_FILE"
-```
+Nothing further to run — the Step 9 invocation already did this. On 2xx the Stride API returns the goals and child tasks with their auto-generated identifiers (G-prefix for goals, W-prefix for work tasks, D-prefix for defects): `{"success": true, "total": N, "goals": [{"goal": {...}, "child_tasks": [...]}]}`. The renderer also accepts the older flat shape (`identifier` / `title` / `tasks` on each goal entry, optionally under `data`). Every goal and task must carry an identifier; `lib/ship.sh` builds the whole table before printing any of it, so a response of an unexpected shape produces the do-not-re-run notice from 9c rather than half a table or a Python traceback.
 
 The table format is two columns: identifier (right-aligned, 6 chars wide for `G123` / `W1234` etc.) followed by the title, with child tasks indented under their goal. A typical successful invocation produces output like:
 
@@ -661,7 +554,7 @@ Created goals and tasks:
    W406    Write the stride-ideation SKILL.md
 ```
 
-After the table, print:
+After the table, the script prints:
 
 > Batch shipped successfully.
 > The goals are now visible in the Stride workspace's Backlog column.
@@ -670,14 +563,14 @@ Do NOT print "next step:" suggestions, do NOT propose follow-on commands. The te
 
 ## Resilience model
 
-`/stridify` is designed to survive a transient Anthropic API capacity spike without losing the assembled prompt or producing partial Stride state. The model has four layers, in execution order: (1) **Preflight advisory** — Step 2 prints a one-line suggestion to use `--goal` when the doc enumerates more than 3 surfaces under `## Decomposition seams` (informational, never blocking). (2) **Per-goal partitioning** — Step 1's optional `--goal <name|index>` flag scopes the prompt to one surface from the doc's `## Decomposition seams` section, reducing per-dispatch token count and the blast radius of a single failure. (3) **Subagent dispatch retry** — Step 7c retries the requirements-decomposer dispatch up to **3 attempts** with ~30s / ~90s backoff (total budget ~2 min) when the failure classifies as transient (HTTP 529, network error, "overloaded" string). Terminal classifications (bad subagent name, contract violation, hard 4xx) fail fast on attempt 1 — retrying will not change the result. (4) **Retry-exhaustion fallback** — Step 7.5 writes the assembled prompt plus metadata to a sibling `<source-stem>-decomposer-prompt.md` file on exhaustion, with a recovery README naming the next concrete action (paste the prompt into a fresh session, save the JSON response at the target path, then run `lib/validate_batch.py` and the manual POST per Step 9). **The Stride API POST itself is NOT retried** — Step 9 fails fast on 4xx/5xx and surfaces the response body verbatim. Per-task idempotency on a partially-failed batch is not guaranteed, so an automatic POST retry could double-create some tasks while leaving others to fail again; the recovery contract is "the user reads the verbatim body and re-invokes" rather than "the command retries automatically".
+`/stridify` is designed to survive a transient Anthropic API capacity spike without losing the assembled prompt or producing partial Stride state. The model has four layers, in execution order: (1) **Preflight advisory** — Step 2 prints a one-line suggestion to use `--goal` when the doc enumerates more than 3 surfaces under `## Decomposition seams` (informational, never blocking). (2) **Per-goal partitioning** — Step 1's optional `--goal <name|index>` flag scopes the prompt to one surface from the doc's `## Decomposition seams` section, reducing per-dispatch token count and the blast radius of a single failure. (3) **Subagent dispatch retry** — Step 7c retries the requirements-decomposer dispatch up to **3 attempts** with ~30s / ~90s backoff (total budget ~2 min) when the failure classifies as transient (HTTP 529, network error, "overloaded" string). Terminal classifications (bad subagent name, contract violation, hard 4xx) fail fast on attempt 1 — retrying will not change the result. (4) **Retry-exhaustion fallback** — Step 7.5 writes the assembled prompt plus metadata to a sibling `<source-stem>-decomposer-prompt.md` file on exhaustion, with a recovery README naming the next concrete action (paste the prompt into a fresh session, save the JSON response at the target path, then run `lib/validate_batch.py` and `lib/ship.sh` per Step 9). **The Stride API POST itself is NOT retried** — Step 9 fails fast on 4xx/5xx and surfaces the response body verbatim. Per-task idempotency on a partially-failed batch is not guaranteed, so an automatic POST retry could double-create some tasks while leaving others to fail again; the recovery contract is "the user reads the verbatim body and re-invokes" rather than "the command retries automatically".
 
 ## What this command does NOT do
 
 - **Validate Stride API field shapes** beyond root-key + structure — that's `lib/validate_batch.py`'s job; surface 422 errors verbatim if anything slips through.
 - **Modify the source requirements doc** — read-only access. The doc is committed earlier (by `/ideate`) and is treated as the source of truth.
 - **Re-run ideation** — if the doc is missing sections, the error message points the user at `/ideate --continue <path>` rather than auto-invoking it.
-- **Strip `decomposition_notes` from the on-disk JSON** — that field is part of the saved artifact. The strip happens in memory before the POST in Step 9; the on-disk file keeps the audit fields.
+- **Strip `decomposition_notes` from the on-disk JSON** — that field is part of the saved artifact. The strip writes a temp copy for the POST in Step 9 (removed afterwards); the on-disk file keeps the audit fields.
 - **Retry the Stride API POST on transient failures** — fail fast and let the user re-invoke. Idempotency on the Stride side is not guaranteed for partial batches, so an automatic POST retry could double-create some tasks while leaving others to fail again. (This is different from the Step 7 subagent dispatch, which **is** retried with bounded exponential backoff. Subagent dispatch has no Stride-side side effects, so retrying it is safe; a POSTed batch may have partially landed, so retrying it is not.)
 - **Drift-check the requirements doc against the batch JSON** — historical `/ship` did this to catch human edits between `/decompose` and `/ship`. The merged flow writes the batch JSON in the current invocation, so source drift cannot have occurred and the check is omitted.
 - **Re-validate that a `--goal` value matches the surface the subagent actually emitted** — the Step 7e prompt directive names the target surface, but the on-disk goal `title` is whatever the subagent produced. If the subagent drifts and emits a different surface name, Step 8a still gates root-shape (root key `goals`, non-empty), but a semantic mismatch between the requested `--goal` and the emitted goal `title` is currently surfaced only as whatever the user sees in the Stride backlog. Future hardening could add an Step 8a-extra assertion that `len(goals) == 1 && slugify(goals[0].title) == GOAL_SLUG`; today it is out of scope.

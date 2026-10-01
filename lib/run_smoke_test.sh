@@ -16,10 +16,10 @@
 #       response-rendering code is also exercised.
 #
 #   ./lib/run_smoke_test.sh --live <stride-batch.json>
-#       LIVE mode. Reads auth from the project directory's .stride_auth.md
-#       (resolved OPENCODE_PROJECT_DIR, then CLAUDE_PROJECT_DIR, then pwd)
-#       and POSTs the supplied batch to the Stride API. Use a dev
-#       Stride instance — this creates real tasks.
+#       LIVE mode. Ships the supplied batch through lib/ship.sh, which reads
+#       .stride_auth.md ($STRIDE_AUTH_FILE, else the git toplevel, else pwd)
+#       and POSTs it to the Stride API with the token kept off every command
+#       line. Use a dev Stride instance — this creates real tasks.
 #
 # Exit code: 0 if every stage passes; non-zero on the first failure.
 
@@ -27,6 +27,12 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Per-run scratch dir for stage stderr captures: never a fixed /tmp path,
+# which another user or a concurrent run could pre-create or read.
+SM_TMP="$(mktemp -d)"
+sm_cleanup() { [ -n "${SM_TMP:-}" ] && [ -d "$SM_TMP" ] && rm -rf "$SM_TMP"; }
+trap sm_cleanup EXIT
 
 MODE="dry"
 BATCH_PATH="${PLUGIN_ROOT}/fixtures/2026-05-12T120000-dark-mode-toggle-stride-batch.json"
@@ -66,30 +72,30 @@ printf 'batch JSON: %s\n\n' "$BATCH_PATH"
 # --- Stage 1: validate_batch.py --------------------------------------------
 
 printf 'Stage 1: structural validation\n'
-if python3 "${SCRIPT_DIR}/validate_batch.py" "$BATCH_PATH" 2>/tmp/sm-validate.err; then
+if python3 "${SCRIPT_DIR}/validate_batch.py" "$BATCH_PATH" 2>"$SM_TMP/validate.err"; then
   ok "validate_batch.py accepts the batch"
 else
-  nope "validate_batch.py rejected the batch" "$(cat /tmp/sm-validate.err)"
+  nope "validate_batch.py rejected the batch" "$(cat "$SM_TMP/validate.err")"
 fi
-rm -f /tmp/sm-validate.err
+rm -f "$SM_TMP/validate.err"
 
 # --- Stage 2: drift_check.py ------------------------------------------------
 
 printf '\nStage 2: source-spec drift check\n'
-python3 "${SCRIPT_DIR}/drift_check.py" "$BATCH_PATH" 2>/tmp/sm-drift.err
+python3 "${SCRIPT_DIR}/drift_check.py" "$BATCH_PATH" 2>"$SM_TMP/drift.err"
 DRIFT_EXIT=$?
 case "$DRIFT_EXIT" in
   0)
     ok "drift_check.py reports no drift (source_spec_sha256 matches the source)"
     ;;
   1)
-    nope "drift_check.py reports DRIFT — fixture is stale" "$(cat /tmp/sm-drift.err)"
+    nope "drift_check.py reports DRIFT — fixture is stale" "$(cat "$SM_TMP/drift.err")"
     ;;
   2)
-    nope "drift_check.py reported an error" "$(cat /tmp/sm-drift.err)"
+    nope "drift_check.py reported an error" "$(cat "$SM_TMP/drift.err")"
     ;;
 esac
-rm -f /tmp/sm-drift.err
+rm -f "$SM_TMP/drift.err"
 
 # --- Stage 3: read_auth.py against a fixture auth file ---------------------
 
@@ -101,7 +107,7 @@ cat > "$TMP_AUTH" <<'EOF'
 - **API Token:** `stride_dev_TEST_TOKEN_FOR_SMOKE_TEST_ONLY`
 EOF
 
-if AUTH_OUT="$(python3 "${SCRIPT_DIR}/read_auth.py" "$TMP_AUTH" 2>/tmp/sm-auth.err)"; then
+if AUTH_OUT="$(python3 "${SCRIPT_DIR}/read_auth.py" "$TMP_AUTH" 2>"$SM_TMP/auth.err")"; then
   if printf '%s\n' "$AUTH_OUT" | grep -q '^STRIDE_API_URL=https://www.stridelikeaboss.example$'; then
     ok "read_auth.py extracts STRIDE_API_URL"
   else
@@ -113,14 +119,14 @@ if AUTH_OUT="$(python3 "${SCRIPT_DIR}/read_auth.py" "$TMP_AUTH" 2>/tmp/sm-auth.e
     nope "TOKEN line not as expected" "$AUTH_OUT"
   fi
 else
-  nope "read_auth.py failed on the fixture auth file" "$(cat /tmp/sm-auth.err)"
+  nope "read_auth.py failed on the fixture auth file" "$(cat "$SM_TMP/auth.err")"
 fi
-rm -f "$TMP_AUTH" /tmp/sm-auth.err
+rm -f "$TMP_AUTH" "$SM_TMP/auth.err"
 
 # --- Stage 4: strip_audit_fields.py ----------------------------------------
 
 printf '\nStage 4: strip local-audit fields from the payload\n'
-if STRIPPED="$(python3 "${SCRIPT_DIR}/strip_audit_fields.py" "$BATCH_PATH" 2>/tmp/sm-strip.err)"; then
+if STRIPPED="$(python3 "${SCRIPT_DIR}/strip_audit_fields.py" "$BATCH_PATH" 2>"$SM_TMP/strip.err")"; then
   if printf '%s' "$STRIPPED" | grep -q '"source_spec"'; then
     nope "stripped payload still contains source_spec" ""
   else
@@ -142,9 +148,9 @@ if STRIPPED="$(python3 "${SCRIPT_DIR}/strip_audit_fields.py" "$BATCH_PATH" 2>/tm
     nope "stripped payload lost goals" ""
   fi
 else
-  nope "strip_audit_fields.py failed" "$(cat /tmp/sm-strip.err)"
+  nope "strip_audit_fields.py failed" "$(cat "$SM_TMP/strip.err")"
 fi
-rm -f /tmp/sm-strip.err
+rm -f "$SM_TMP/strip.err"
 
 # Confirm the on-disk file is unchanged.
 SHA_AFTER="$(shasum -a 256 "$BATCH_PATH" | awk '{print $1}')"
@@ -248,49 +254,13 @@ fi
 if [ "$MODE" = "live" ]; then
   printf '\nStage 7: LIVE POST to the Stride API (NOTE: creates real tasks)\n'
 
-  AUTH_FILE="${OPENCODE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}/.stride_auth.md"
-  if [ ! -f "$AUTH_FILE" ]; then
-    nope "--live requires .stride_auth.md at $AUTH_FILE" ""
+  # Ship through lib/ship.sh — the same single process /stridify Step 9 runs —
+  # so the token stays off argv here too. Its stderr and stdout (verbatim
+  # body on failure, identifier table on success) pass straight through.
+  if bash "${SCRIPT_DIR}/ship.sh" "$BATCH_PATH"; then
+    ok "live: lib/ship.sh shipped the batch"
   else
-    if AUTH_OUT_LIVE="$(python3 "${SCRIPT_DIR}/read_auth.py" "$AUTH_FILE" 2>/tmp/sm-live-auth.err)"; then
-      eval "$AUTH_OUT_LIVE"
-      unset AUTH_OUT_LIVE
-      LIVE_PAYLOAD="$(python3 "${SCRIPT_DIR}/strip_audit_fields.py" "$BATCH_PATH")"
-
-      LIVE_RESP="$(mktemp -t sm_live_resp.XXXXXX.json)"
-      LIVE_CODE="$(curl -sS -X POST \
-        -H "Authorization: Bearer $STRIDE_API_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "$LIVE_PAYLOAD" \
-        "$STRIDE_API_URL/api/tasks/batch" \
-        -o "$LIVE_RESP" \
-        -w '%{http_code}')"
-      unset STRIDE_API_TOKEN
-
-      case "$LIVE_CODE" in
-        2*)
-          ok "live POST returned HTTP $LIVE_CODE"
-          printf '\nCreated identifiers:\n'
-          python3 - "$LIVE_RESP" <<'PY'
-import json, sys
-with open(sys.argv[1]) as fp:
-    data = json.load(fp)
-container = data.get("data", data)
-for goal in container.get("goals", []):
-    print(f"  {goal.get('identifier', '?'):>6}  {goal.get('title', '')}")
-    for task in goal.get("tasks", []) or []:
-        print(f"  {task.get('identifier', '?'):>6}    {task.get('title', '')}")
-PY
-          ;;
-        *)
-          nope "live POST returned HTTP $LIVE_CODE" "$(cat "$LIVE_RESP")"
-          ;;
-      esac
-      rm -f "$LIVE_RESP"
-    else
-      nope "live: read_auth.py failed" "$(cat /tmp/sm-live-auth.err)"
-    fi
-    rm -f /tmp/sm-live-auth.err
+    nope "live: lib/ship.sh exited non-zero (its stderr is above)" ""
   fi
 fi
 

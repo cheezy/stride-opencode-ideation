@@ -5,6 +5,16 @@ All notable changes to the Stride Ideation extension for OpenCode are documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed — `/stridify` ships through one script, with the token off every command line (D316)
+
+- **New `lib/ship.sh`** reads `.stride_auth.md`, strips the audit fields, re-validates the exact payload, POSTs it and renders the created identifiers in one process. The token reaches curl as a config on its stdin (`curl -K -`), never on argv or on disk; the payload goes as `--data-binary @file`; response bodies and curl errors are printed verbatim with the token and any `Bearer` value scrubbed; a payload containing the token is refused; a caller's `xtrace`/`allexport` is turned off. `--check-auth` is the Step 3 preflight. Covered by `lib/test-ship.sh`.
+- **`.stride_auth.md` is found from a subdirectory.** The lookup is `$STRIDE_AUTH_FILE`, else the git toplevel of the working directory, else the current directory — replacing the `OPENCODE_PROJECT_DIR` / `CLAUDE_PROJECT_DIR` / `$PWD` chain, which missed the file whenever neither variable was set and the command ran from a subdirectory.
+- **`lib/read_auth.py` shell-quotes its output**, so `eval`ing it can no longer execute anything the auth file contains.
+- **`commands/stridify.md`** Steps 3, 9 and 10 now run `lib/ship.sh` instead of an `eval` plus a hand-written `curl -H "Authorization: Bearer …"`; the decline message and recovery README point at it too, and the false claim that curl hides the token is gone.
+- **`lib/run_smoke_test.sh --live`** ships through `lib/ship.sh`, and its stage captures use a per-run `mktemp -d` directory instead of fixed `/tmp/sm-*.err` paths.
+
 ## [0.4.1] - 2026-08-21
 
 Documentation only. Nothing in the skills or the install path changed.

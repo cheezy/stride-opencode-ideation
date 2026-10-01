@@ -107,8 +107,8 @@ step_7_5_save_prompt_and_exit() {
     printf 'Paste the prompt block above into a fresh Claude session — any model capable\n'
     printf 'of following the requirements-decomposer contract works. The session does\n'
     printf 'NOT need codebase access. Save the resulting fenced JSON as %s.\n' "$target_batch_path"
-    printf 'Then run python3 <plugin-root>/lib/validate_batch.py on that path, and follow\n'
-    printf 'Step 9 of commands/stridify.md manually.\n\n'
+    printf 'Then run python3 <plugin-root>/lib/validate_batch.py on that path, and\n'
+    printf 'ship it with lib/ship.sh per Step 9 of commands/stridify.md.\n\n'
     printf 'This sibling file contains NO authentication material — the decomposer\n'
     printf 'prompt has no API access by construction.\n'
   } > "$prompt_path" 2>"$TMP/write.err"
@@ -131,7 +131,7 @@ step_7_5_save_prompt_and_exit() {
     printf '\n'
     printf 'To recover: paste the prompt block from that file into a fresh Claude\n'
     printf 'session; save the JSON response as %s; then run\n' "$target_batch_path"
-    printf '`python3 lib/validate_batch.py %s` and the manual POST per Step 9.\n' "$target_batch_path"
+    printf '`python3 lib/validate_batch.py %s` and `bash lib/ship.sh %s` (Step 9).\n' "$target_batch_path" "$target_batch_path"
     printf '\nThe Stride API POST was NOT attempted.\n'
   } >&2
   # The real implementation calls `exit 1`; the test wants control to return.

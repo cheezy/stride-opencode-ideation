@@ -9,8 +9,9 @@
 #   ./install.sh --global  # global:        ~/.config/opencode/
 #
 # There is NO plugin to install — ideation has no lifecycle hooks. This copies
-# the skills, commands, agents, lib/ helpers, and fixtures into the OpenCode
-# discovery paths, and AGENTS.md to the project root.
+# the skills, commands and agents into the OpenCode discovery paths, the lib/
+# helpers and fixtures into a bundle-owned stride-ideation/ directory beside
+# them, and AGENTS.md to the project root.
 
 set -euo pipefail
 
@@ -40,19 +41,38 @@ else
   echo "Installing Stride Ideation for OpenCode into .opencode/ (project-local)..."
 fi
 
-# Source: this script's directory if it already contains the bundle, else clone.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/AGENTS.md" ] && [ -d "$SCRIPT_DIR/skills" ]; then
-  SRC="$SCRIPT_DIR"
-  CLEANUP=""
-else
-  TMPDIR="$(mktemp -d)"
-  CLEANUP="$TMPDIR"
-  echo "Downloading from $REPO..."
-  git clone --quiet --depth 1 "$REPO" "$TMPDIR/stride-opencode-ideation"
-  SRC="$TMPDIR/stride-opencode-ideation"
+# Source: this script's directory if it IS this bundle, else clone.
+#
+# Under `curl ... | bash` (or `bash < install.sh`) the script comes from stdin,
+# BASH_SOURCE is unset, and there is no script directory at all. The `:-`
+# default keeps that from aborting under `set -u`; an empty SCRIPT_DIR then
+# falls through to the clone. The current directory is never a candidate: a
+# directory only counts as the bundle when it carries this bundle's own files,
+# so a user's project with its own AGENTS.md and skills/ is never copied.
+SCRIPT_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
+is_bundle() {
+  [ -n "$1" ] &&
+    [ -f "$1/commands/stridify.md" ] && [ -f "$1/commands/ideate.md" ] &&
+    [ -f "$1/lib/filename.sh" ] && [ -f "$1/AGENTS.md" ] && [ -d "$1/skills" ]
+}
+CLEANUP=""
 trap '[ -n "${CLEANUP:-}" ] && rm -rf "$CLEANUP"' EXIT
+if is_bundle "$SCRIPT_DIR"; then
+  SRC="$SCRIPT_DIR"
+else
+  CLONE_DIR="$(mktemp -d)"
+  CLEANUP="$CLONE_DIR"
+  echo "Downloading from $REPO..."
+  git clone --quiet --depth 1 "$REPO" "$CLONE_DIR/stride-opencode-ideation"
+  SRC="$CLONE_DIR/stride-opencode-ideation"
+  if ! is_bundle "$SRC"; then
+    echo "install.sh: the download from $REPO is not a stride-opencode-ideation bundle; nothing was installed." >&2
+    exit 1
+  fi
+fi
 
 # OpenCode discovers skills/, commands/, agents/ (plural) from the config dir.
 # Use cp -a to preserve the executable bit on the lib/*.sh helpers.
@@ -61,10 +81,24 @@ cp -a "$SRC/skills/."   "$OC_DIR/skills/"
 cp -a "$SRC/commands/." "$OC_DIR/commands/"
 cp    "$SRC/agents/"*.md "$OC_DIR/agents/"
 
-# /stridify helpers + smoke-test fixtures live alongside under the config dir.
-mkdir -p "$OC_DIR/lib" "$OC_DIR/fixtures"
-cp -a "$SRC/lib/."      "$OC_DIR/lib/"
-cp -a "$SRC/fixtures/." "$OC_DIR/fixtures/"
+# /stridify helpers + smoke-test fixtures live in a bundle-owned directory, so
+# the commands have one stable path to call them by and the sibling Stride
+# OpenCode bundles, which share $OC_DIR/lib and $OC_DIR/fixtures, are never
+# touched. lib/ and fixtures/ stay siblings: lib/run_smoke_test.sh finds its
+# fixture through ../fixtures.
+PKG_DIR="$OC_DIR/stride-ideation"
+mkdir -p "$PKG_DIR/lib" "$PKG_DIR/fixtures"
+cp -a "$SRC/lib/."      "$PKG_DIR/lib/"
+cp -a "$SRC/fixtures/." "$PKG_DIR/fixtures/"
+
+# Older installs copied the helpers flat into $OC_DIR/lib and $OC_DIR/fixtures.
+# Those files are left exactly where they are (a sibling bundle may own a file
+# of the same name); name them once so the user can remove them by hand.
+LEGACY=""
+for f in "$SRC/lib/"* "$SRC/fixtures/"*; do
+  rel="$(basename "$(dirname "$f")")/$(basename "$f")"
+  if [ -e "$OC_DIR/$rel" ]; then LEGACY="${LEGACY:+$LEGACY, }$OC_DIR/$rel"; fi
+done
 
 # AGENTS.md orients the main agent; it belongs at the project (or config) root.
 # Preserve any existing user-authored AGENTS.md by confining our content to an
@@ -139,11 +173,14 @@ echo "Installed into $OC_DIR:"
 echo "  Skills:   $(ls -d "$OC_DIR/skills/"*/ 2>/dev/null | wc -l | tr -d ' ')"
 echo "  Commands: $(ls "$OC_DIR/commands/"*.md 2>/dev/null | wc -l | tr -d ' ') (/ideate, /stridify)"
 echo "  Agents:   $(ls "$OC_DIR/agents/"*.md 2>/dev/null | wc -l | tr -d ' ')"
-echo "  Helpers:  $(ls "$OC_DIR/lib/" 2>/dev/null | wc -l | tr -d ' ') files in lib/"
-echo "  Fixtures: $(ls "$OC_DIR/fixtures/" 2>/dev/null | wc -l | tr -d ' ') files in fixtures/"
+echo "  Helpers:  $(ls "$PKG_DIR/lib/" 2>/dev/null | wc -l | tr -d ' ') files in $PKG_DIR/lib/"
+echo "  Fixtures: $(ls "$PKG_DIR/fixtures/" 2>/dev/null | wc -l | tr -d ' ') files in $PKG_DIR/fixtures/"
 echo "  AGENTS.md -> $ROOT_DIR/AGENTS.md ($AGENTS_STATUS)"
 echo ""
 echo "There is NO plugin to register in opencode.json — ideation has no hooks."
+if [ -n "$LEGACY" ]; then
+  echo "Note: an older install left these stride-ideation files in the shared lib/ and fixtures/ (no longer used, left in place; remove them if no other bundle needs them): $LEGACY"
+fi
 echo ""
 echo "Next steps:"
 echo "  1. Restart OpenCode so it discovers the new commands (/ideate, /stridify)."

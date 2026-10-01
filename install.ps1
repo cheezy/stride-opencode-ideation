@@ -3,16 +3,17 @@
     Install the Stride ideation bundle for OpenCode.
 
 .DESCRIPTION
-    Copies the skills, commands, agents, lib/ helpers, and fixtures into the
-    OpenCode discovery paths, and AGENTS.md to the root. By default installs
-    project-local into .\.opencode\ ; use -Global to install into
-    $env:USERPROFILE\.config\opencode\ .
+    Copies the skills, commands and agents into the OpenCode discovery paths,
+    the lib/ helpers and fixtures into a bundle-owned stride-ideation/
+    directory beside them, and AGENTS.md to the root. By default installs
+    project-local into .opencode/ ; use -Global to install into
+    ~/.config/opencode/ ($HOME, falling back to USERPROFILE).
 
     There is NO plugin to install — ideation has no lifecycle hooks, so there
     is no "plugin" entry to add to opencode.json.
 
 .PARAMETER Global
-    Install into $env:USERPROFILE\.config\opencode\ instead of .\.opencode\ .
+    Install into ~/.config/opencode/ instead of .opencode/ .
 
 .PARAMETER Help
     Print usage information and exit.
@@ -25,7 +26,7 @@
 .EXAMPLE
     .\install.ps1 -Global
 
-    Installs into $env:USERPROFILE\.config\opencode\ .
+    Installs into ~/.config/opencode/ .
 #>
 
 [CmdletBinding()]
@@ -41,38 +42,79 @@ $Repo = 'https://github.com/cheezy/stride-opencode-ideation.git'
 if ($Help) {
     Write-Host 'Usage: install.ps1 [-Global]'
     Write-Host ''
-    Write-Host '  (default)   Install project-local into .\.opencode\'
-    Write-Host '  -Global     Install into $env:USERPROFILE\.config\opencode\'
+    Write-Host '  (default)   Install project-local into .opencode/'
+    Write-Host '  -Global     Install into ~/.config/opencode/'
     return
 }
 
 if ($Global) {
-    $OcDir   = Join-Path $env:USERPROFILE '.config\opencode'
+    # $HOME is set by PowerShell on every platform (on Windows it equals
+    # USERPROFILE); USERPROFILE alone is null on macOS and Linux pwsh. Build the
+    # path from separate segments so no '\' separator is baked in.
+    $UserHome = $HOME
+    if (-not $UserHome) { $UserHome = $env:USERPROFILE }
+    if (-not $UserHome) { throw 'install.ps1: cannot locate the home directory ($HOME and USERPROFILE are both empty).' }
+    $OcDir   = Join-Path (Join-Path $UserHome '.config') 'opencode'
     $RootDir = $OcDir
-    Write-Host 'Installing Stride Ideation for OpenCode into $env:USERPROFILE\.config\opencode\ (global)...'
+    Write-Host "Installing Stride Ideation for OpenCode into $OcDir (global)..."
 } else {
     $OcDir   = Join-Path (Get-Location) '.opencode'
     $RootDir = (Get-Location).Path
     Write-Host 'Installing Stride Ideation for OpenCode into .opencode\ (project-local)...'
 }
 
-# Source: this script's directory if it already contains the bundle, else clone.
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Source: this script's directory if it IS this bundle, else clone.
+# Run as `irm ... | iex` there is no script file, so $PSCommandPath is empty
+# and the clone path is taken. The current directory is never a candidate: a
+# directory only counts as the bundle when it carries this bundle's own files,
+# so a user's project with its own AGENTS.md and skills/ is never copied.
+function Test-IdeationBundle([string]$Dir) {
+    if (-not $Dir) { return $false }
+    # Nested Join-Path: the three-argument form requires PowerShell 6+.
+    return (Test-Path -PathType Leaf (Join-Path (Join-Path $Dir 'commands') 'stridify.md')) -and
+           (Test-Path -PathType Leaf (Join-Path (Join-Path $Dir 'commands') 'ideate.md')) -and
+           (Test-Path -PathType Leaf (Join-Path (Join-Path $Dir 'lib') 'filename.sh')) -and
+           (Test-Path -PathType Leaf (Join-Path $Dir 'AGENTS.md')) -and
+           (Test-Path -PathType Container (Join-Path $Dir 'skills'))
+}
+$ScriptDir = $null
+if ($PSCommandPath) { $ScriptDir = Split-Path -Parent $PSCommandPath }
 $Cleanup = $null
-if ((Test-Path (Join-Path $ScriptDir 'AGENTS.md')) -and (Test-Path (Join-Path $ScriptDir 'skills'))) {
+if (Test-IdeationBundle $ScriptDir) {
     $Src = $ScriptDir
 } else {
     $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
     New-Item -ItemType Directory -Force -Path $Tmp | Out-Null
     $Cleanup = $Tmp
     Write-Host "Downloading from $Repo..."
-    git clone --quiet --depth 1 $Repo (Join-Path $Tmp 'stride-opencode-ideation')
     $Src = Join-Path $Tmp 'stride-opencode-ideation'
+    git clone --quiet --depth 1 $Repo $Src
+    if (-not (Test-IdeationBundle $Src)) {
+        Remove-Item -Recurse -Force $Cleanup
+        throw "install.ps1: the download from $Repo is not a stride-opencode-ideation bundle; nothing was installed."
+    }
 }
+
+# lib/ and fixtures/ go to a bundle-owned directory, so the commands have one
+# stable path to call them by and the sibling Stride OpenCode bundles, which
+# share .opencode/lib and .opencode/fixtures, are never touched. They stay
+# siblings: lib/run_smoke_test.* finds its fixture through ../fixtures.
+$PkgDir = Join-Path $OcDir 'stride-ideation'
+$Legacy = @()
 
 try {
     foreach ($d in @('skills', 'commands', 'agents', 'lib', 'fixtures')) {
-        $dest = Join-Path $OcDir $d
+        if (($d -eq 'lib') -or ($d -eq 'fixtures')) {
+            $dest = Join-Path $PkgDir $d
+            # Older installs copied these flat into the shared directory. Leave
+            # them exactly where they are; name them once below.
+            foreach ($f in (Get-ChildItem -Force (Join-Path $Src $d))) {
+                $old = Join-Path (Join-Path $OcDir $d) $f.Name
+                if (Test-Path $old) { $Legacy += $old }
+            }
+        } else {
+            $dest = Join-Path $OcDir $d
+        }
         New-Item -ItemType Directory -Force -Path $dest | Out-Null
         # Nested Join-Path: the three-argument form requires PowerShell 6+;
         # nesting keeps this runnable on stock Windows PowerShell 5.1.
@@ -132,7 +174,11 @@ try {
 
 Write-Host ''
 Write-Host "Stride Ideation for OpenCode installed into $OcDir"
+Write-Host "Helpers and fixtures: $PkgDir"
 Write-Host 'There is NO plugin to register in opencode.json — ideation has no hooks.'
+if ($Legacy.Count -gt 0) {
+    Write-Host ("Note: an older install left these stride-ideation files in the shared lib/ and fixtures/ (no longer used, left in place; remove them if no other bundle needs them): " + ($Legacy -join ', '))
+}
 Write-Host ''
 Write-Host 'Next steps:'
 Write-Host '  1. Restart OpenCode so it discovers the new commands (/ideate, /stridify).'

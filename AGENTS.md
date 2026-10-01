@@ -37,9 +37,11 @@ skills/   -> .opencode/skills/
 commands/ -> .opencode/commands/
 agents/   -> .opencode/agents/
 AGENTS.md -> ./AGENTS.md
+lib/      -> .opencode/stride-ideation/lib/
+fixtures/ -> .opencode/stride-ideation/fixtures/
 ```
 
-`lib/` and `fixtures/` ship alongside for the `/stridify` helpers and the smoke test. **No plugin install** (no `"plugin"` entry in `opencode.json`) is needed — there is no TypeScript plugin.
+`lib/` (the `/stridify` helpers) and `fixtures/` (the smoke-test fixtures) go in a bundle-owned `stride-ideation/` directory (`~/.config/opencode/stride-ideation/` for a global install), never the shared `.opencode/lib/` that sibling Stride bundles also use; that directory is the extension's `<plugin-root>`. **No plugin install** (no `"plugin"` entry in `opencode.json`) is needed — there is no TypeScript plugin.
 
 ## Workflow Sequence
 

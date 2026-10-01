@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`commands/stridify.md`** Steps 3, 9 and 10 now run `lib/ship.sh` instead of an `eval` plus a hand-written `curl -H "Authorization: Bearer …"`; the decline message and recovery README point at it too, and the false claim that curl hides the token is gone.
 - **`lib/run_smoke_test.sh --live`** ships through `lib/ship.sh`, and its stage captures use a per-run `mktemp -d` directory instead of fixed `/tmp/sm-*.err` paths.
 
+### Fixed — the installers no longer mistake your project for the bundle, and the helpers get a directory of their own (D317)
+
+- **`curl … | bash` installed the user's own project.** Piped, `install.sh` has no script directory: `BASH_SOURCE[0]` aborted under `set -u`, the script directory fell back to the current one, and a project with its own `AGENTS.md` and `skills/` was copied into `.opencode/` as if it were the bundle. The script directory now defaults safely to empty, and a directory counts as the bundle only when it has `commands/stridify.md`, `commands/ideate.md` and `lib/filename.sh`; otherwise the installer downloads it, and refuses a download that fails the same check. `install.ps1` does the same under `irm | iex`.
+- **`lib/` and `fixtures/` install to `.opencode/stride-ideation/`** (`~/.config/opencode/stride-ideation/` globally) instead of the `.opencode/lib/` and `.opencode/fixtures/` that sibling Stride bundles share. Files an older install left in the shared directories are not touched; one `Note:` line names them.
+- **`install.ps1 -Global` works on macOS and Linux.** The global directory is built from `$HOME` (falling back to `USERPROFILE`) with two-argument `Join-Path` segments instead of `$env:USERPROFILE` plus a backslash.
+- **New `lib/test-install.sh` and `lib/test-install.ps1`** run each installer against scratch projects with a stubbed `git`: piped from a look-alike project, a local checkout, a re-install, legacy flat files, global mode, an orphaned `BEGIN` marker, and a download that is not the bundle.
+
 ## [0.4.1] - 2026-08-21
 
 Documentation only. Nothing in the skills or the install path changed.

@@ -53,6 +53,24 @@ On Windows, use the PowerShell installer:
 .\stride-opencode-ideation\install.ps1 -Global    # global
 ```
 
+Or install without cloning first (the script downloads the bundle itself):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cheezy/stride-opencode-ideation/main/install.sh | bash
+```
+
+The installer only copies from a directory that is this bundle — one that has `commands/stridify.md`, `commands/ideate.md` and `lib/filename.sh`. Piped like this, it has no directory of its own, so it always downloads the bundle; it never mistakes your project (even one with its own `AGENTS.md` and `skills/`) for the bundle, and it never reads or copies `.stride_auth.md`. The piped form installs whatever is on `main` at that moment, unpinned and unverified; to install a release you have reviewed, clone its tag instead (`git clone --depth 1 --branch v<version> https://github.com/cheezy/stride-opencode-ideation.git`) and run that checkout's `install.sh`.
+
+#### Where the files go
+
+| From the bundle | Project install | Global install |
+|---|---|---|
+| `skills/`, `commands/`, `agents/` | `.opencode/skills/`, `.opencode/commands/`, `.opencode/agents/` | `~/.config/opencode/skills/`, `.../commands/`, `.../agents/` |
+| `lib/`, `fixtures/` | `.opencode/stride-ideation/lib/`, `.opencode/stride-ideation/fixtures/` | `~/.config/opencode/stride-ideation/lib/`, `.../stride-ideation/fixtures/` |
+| `AGENTS.md` | `./AGENTS.md` (managed block) | `~/.config/opencode/AGENTS.md` (managed block) |
+
+The helpers live in a `stride-ideation/` directory of their own, not the shared `.opencode/lib/` and `.opencode/fixtures/` that other Stride OpenCode bundles also install into. Installs before this layout copied them flat into those shared directories; the installer leaves any such files in place (another bundle may own a file of the same name) and prints one `Note:` line naming them, so you can remove them yourself.
+
 #### Your existing `AGENTS.md` is preserved
 
 The installer never overwrites a user-authored `AGENTS.md`. Its guidance is
@@ -95,9 +113,11 @@ cp     /tmp/stride-opencode-ideation/agents/*.md .opencode/agents/
 #     echo '<!-- END stride-ideation -->'; } >> AGENTS.md
 # (Or simply run ./install.sh, which handles create/refresh/append safely.)
 
-# /stridify also needs the lib/ helpers and (for the smoke test) fixtures/
-cp -R /tmp/stride-opencode-ideation/lib       .opencode/
-cp -R /tmp/stride-opencode-ideation/fixtures  .opencode/
+# /stridify also needs the lib/ helpers and (for the smoke test) fixtures/,
+# in their own stride-ideation/ directory (keep lib/ and fixtures/ siblings)
+mkdir -p .opencode/stride-ideation
+cp -R /tmp/stride-opencode-ideation/lib       .opencode/stride-ideation/
+cp -R /tmp/stride-opencode-ideation/fixtures  .opencode/stride-ideation/
 ```
 
 There is **no `"plugin"` step** — this bundle ships no TypeScript plugin.

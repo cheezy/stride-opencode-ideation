@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests for the /stride-ideation:ship helpers:
+# Unit tests for the /stridify ship helpers:
 #
 #   - lib/strip_audit_fields.py  strips source_spec/sha256/decomposition_notes
 #   - lib/read_auth.py            extracts STRIDE_API_URL and STRIDE_API_TOKEN

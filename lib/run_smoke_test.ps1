@@ -1,6 +1,6 @@
-﻿# End-to-end smoke test for the stride-ideation-stridify pipeline.
+﻿# End-to-end smoke test for the /stridify pipeline.
 # PowerShell mirror of run_smoke_test.sh — composes every helper the
-# stridify skill body invokes (in the same order) and verifies each
+# /stridify command body invokes (in the same order) and verifies each
 # stage produces the expected output. The final HTTP POST is dry-run
 # by default; pass -Live <stride-batch.json> to POST against a real
 # Stride instance using the auth in .stride_auth.md.

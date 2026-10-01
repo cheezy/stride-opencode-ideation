@@ -15,7 +15,7 @@ function Fail($m, $d = '') { $script:FAIL++; Write-Host "  FAIL  $m"; if ($d) { 
 Write-Host 'test-stridify-retry.ps1 — exercises Step 7c retry classifier semantics'
 Write-Host ''
 
-# Mirror of the bash classify() function the skill body inlines. Inputs
+# Mirror of the bash classify() function the /stridify command documents. Inputs
 # are the subagent dispatch result string; outputs are one of:
 #   success | transient | terminal
 function Classify-Result {

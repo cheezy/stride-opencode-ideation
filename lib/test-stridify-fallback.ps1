@@ -1,7 +1,7 @@
 ﻿# PowerShell mirror of test-stridify-fallback.sh — tests for the
-# /stride-ideation:stridify Step 7.5 retry-exhaustion fallback documented in
-# commands/stridify.md (W715). The Agent tool is only available inside a live
-# session, so this test embeds a reference PowerShell implementation of the
+# /stridify Step 7.5 retry-exhaustion fallback documented in
+# commands/stridify.md (W715). OpenCode's `task` tool (the subagent dispatch)
+# is only available inside a live session, so this test embeds a reference PowerShell implementation of the
 # documented retry loop + fallback and exercises it against a mock subagent
 # that always fails.
 #
@@ -104,7 +104,7 @@ function Step-75SavePromptAndExit {
         ''
         '## Recovery instructions'
         ''
-        'Paste the prompt block above into a fresh Claude session — any model capable'
+        'Paste the prompt block above into a fresh session — any model capable'
         'of following the requirements-decomposer contract works. The session does'
         "NOT need codebase access. Save the resulting fenced JSON as $TargetBatchPath."
         'Then run /stridify --batch on that path to validate, preview and'
@@ -133,7 +133,7 @@ function Step-75SavePromptAndExit {
     [Console]::Error.WriteLine('Last error from the final attempt:')
     [Console]::Error.WriteLine("  $lastErrFirstLine")
     [Console]::Error.WriteLine('')
-    [Console]::Error.WriteLine('To recover: paste the prompt block from that file into a fresh Claude')
+    [Console]::Error.WriteLine('To recover: paste the prompt block from that file into a fresh')
     [Console]::Error.WriteLine("session; save the JSON response as $TargetBatchPath; then run")
     [Console]::Error.WriteLine("``/stridify --batch `"$TargetBatchPath`"`` to validate, preview and ship it.")
     [Console]::Error.WriteLine('')
@@ -203,7 +203,7 @@ try {
 
     $mock = Join-Path $TMP 'mock_always_fail.ps1'
     Set-Content -LiteralPath $mock -Encoding UTF8 -Value @'
-[Console]::Error.WriteLine('Error: HTTP 529 Overloaded — Anthropic API capacity')
+[Console]::Error.WriteLine('Error: HTTP 529 Overloaded — model provider at capacity')
 exit 2
 '@
 

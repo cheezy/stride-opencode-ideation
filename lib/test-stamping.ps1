@@ -23,8 +23,8 @@ if (-not (Test-Path -LiteralPath $Fixture -PathType Leaf)) {
     exit 1
 }
 
-# Stage 2: compute SHA-256 the same way the skill does (Get-FileHash defaults
-# to uppercase hex; the stridify skill lowercases it via .ToLowerInvariant()).
+# Stage 2: compute SHA-256 the same way /stridify does (Get-FileHash defaults
+# to uppercase hex; the /stridify stamp is lowercase, so lowercase it via .ToLowerInvariant()).
 $sha = (Get-FileHash -LiteralPath $Fixture -Algorithm SHA256).Hash
 $shaLower = $sha.ToLowerInvariant()
 

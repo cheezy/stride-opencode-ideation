@@ -305,18 +305,18 @@ Do NOT use the raw `$REQUIREMENTS_PATH` as `SOURCE_SPEC` — it depends on the u
 
 ### Step 7: Dispatch the `requirements-decomposer` custom agent
 
-Read the full content of the requirements doc and dispatch the requirements-decomposer custom agent by calling OpenCode's `task` tool with `subagent_type: "requirements-decomposer"`, a short `description` (e.g. `Decompose requirements doc`) and the prompt below — never with an `@name` mention, which only a user's own prompt turns into an agent call. The dispatch is wrapped in a **bounded retry loop** so the command survives transient Anthropic API capacity spikes (HTTP 529 Overloaded). Subagent dispatch has no side effects on the Stride API — a retried call cannot double-create anything — so retrying it is safe in a way that retrying the Step 9 POST is not.
+Read the full content of the requirements doc and dispatch the requirements-decomposer custom agent by calling OpenCode's `task` tool with `subagent_type: "requirements-decomposer"`, a short `description` (e.g. `Decompose requirements doc`) and the prompt below — never with an `@name` mention, which only a user's own prompt turns into an agent call. The dispatch is wrapped in a **bounded retry loop** so the command survives a transient provider overload (HTTP 529 Overloaded, or an `overloaded` error from whichever model provider OpenCode uses) or a network failure. Subagent dispatch has no side effects on the Stride API — a retried call cannot double-create anything — so retrying it is safe in a way that retrying the Step 9 POST is not.
 
-Call the `task` tool (`subagent_type: "requirements-decomposer"`) with a prompt consisting of the requirements doc text, fenced inside a "Requirements document:" block — the only input the subagent has access to.
+Call the `task` tool (`subagent_type: "requirements-decomposer"`) with a prompt consisting of the requirements doc text, fenced inside a "Requirements document:" block — the subagent's primary input.
 
-The subagent receives the requirements doc as its entire input (no codebase access, no Stride API access, no clarifying-question loop). Its prompt at `agents/requirements-decomposer.md` documents the decomposition methodology, the canonical batch JSON shape, and the output contract.
+The subagent receives the requirements doc as its input (it may `read`/`grep` the project the doc names to ground `key_files`, marking unconfirmed paths as proposed; no Stride API access, no clarifying-question loop). Its prompt at `agents/requirements-decomposer.md` documents the decomposition methodology, the canonical batch JSON shape, and the output contract.
 
 **(7a) Classify the dispatch outcome.** After each dispatch, classify the result before deciding whether to retry. This mirrors the explicit branching of Step 9c: every outcome maps to exactly one row.
 
 | Outcome | Classification | Action |
 |---|---|---|
 | Subagent returned a single fenced ```json document parseable as a JSON object | success | Extract the fenced JSON block and continue to Step 8. |
-| HTTP 529 Overloaded; transient network error (DNS resolution failure, connection refused, timeout, TLS handshake error); explicit `overloaded` classification string in the error body | transient | Sleep per the backoff schedule, then retry — up to the cap. |
+| HTTP 529 Overloaded, or an `overloaded` error from whichever model provider OpenCode is using; transient network error (DNS resolution failure, connection refused, timeout, TLS handshake error); explicit `overloaded` classification string in the error body | transient | Sleep per the backoff schedule, then retry — up to the cap. |
 | Bad subagent name (the custom agent does not exist); hard 4xx other than 529; contract violation (response contains no fenced JSON block, contains multiple ambiguous fenced blocks, or the fenced content does not parse as a JSON object) | terminal | Fail fast on attempt 1. **Do NOT retry** — these are not load-related and a retry will not change the result. |
 
 **(7b) Backoff schedule.** Bounded exponential — wait times **~30s / ~90s / ~300s** (factor ~3×). Combined with the cap of **3 attempts**, only the first two intervals actually fire (sleep ~30s after attempt 1 before attempt 2; sleep ~90s after attempt 2 before attempt 3; there is no attempt 4, so the ~300s interval is documented for completeness but never used). The cap is 3 — **do not raise it**. If three attempts spread over ~2 minutes did not succeed, the capacity event is longer than the user's patience budget; surfacing the failure and letting the user re-invoke is the safer contract.
@@ -365,7 +365,7 @@ while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
       # step_7_5_save_prompt_and_exit always exits non-zero — control never returns.
       ;;
     terminal)
-      # Bad subagent name, contract violation, or non-529 hard 4xx.
+      # Bad subagent name, contract violation, or a hard 4xx other than 529.
       # Retrying will not change the result — fail fast.
       echo "stride-ideation: requirements-decomposer dispatch failed (not retryable). Error:" >&2
       printf '%s\n' "$RESULT" >&2
@@ -406,7 +406,7 @@ When `GOAL_SLUG` is set, build a scoped prompt in two layers:
 
 The dispatch's `prompt` is then the directive line + a blank line + `Requirements document:` + a blank line + the fenced contents of `$SCOPED_DOC`. The on-disk JSON written in Step 8 must still satisfy the validator at `lib/validate_batch.py` — root-key `goals` with at least one entry. In `--goal` mode the validator's check (c) `empty_goals` still applies; a multi-goal output is shape-valid (the validator does not enforce single-goal-ness), so semantic correctness rests on the directive + the surgery.
 
-The reduced prompt size has a second benefit beyond intent: it lowers the per-dispatch token count, which correlates with both lower HTTP 529 risk and shorter roundtrips — one of the two motivations behind this flag's existence.
+The reduced prompt size has a second benefit beyond intent: it lowers the per-dispatch token count, which correlates with both a lower risk of provider-overload errors and shorter roundtrips — one of the two motivations behind this flag's existence.
 
 ### Step 7.5: Retry-exhaustion fallback — save prompt and exit
 
@@ -524,6 +524,9 @@ elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then S
 elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
 else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
 python3 "$STI_LIB/validate_batch.py" .stride/stridify-subagent-output.json || exit 1
+# The decomposer may read the project: refuse output carrying the API token
+# before anything is written, committed or shown.
+bash "$STI_LIB/ship.sh" --check-payload .stride/stridify-subagent-output.json || exit 1
 ```
 
 The validator enforces these named checks, in order (`lib/validate_batch.py`'s header is the authoritative list):
@@ -748,7 +751,7 @@ Do NOT print "next step:" suggestions, do NOT propose follow-on commands. The te
 
 ## Resilience model
 
-`/stridify` is designed to survive a transient Anthropic API capacity spike without losing the assembled prompt or producing partial Stride state. The model has four layers, in execution order: (1) **Preflight advisory** — Step 2 prints a one-line suggestion to use `--goal` when the doc enumerates more than 3 surfaces under `## Decomposition seams` (informational, never blocking). (2) **Per-goal partitioning** — Step 1's optional `--goal <name|index>` flag scopes the prompt to one surface from the doc's `## Decomposition seams` section, reducing per-dispatch token count and the blast radius of a single failure. (3) **Subagent dispatch retry** — Step 7c retries the requirements-decomposer dispatch up to **3 attempts** with ~30s / ~90s backoff (total budget ~2 min) when the failure classifies as transient (HTTP 529, network error, "overloaded" string). Terminal classifications (bad subagent name, contract violation, hard 4xx) fail fast on attempt 1 — retrying will not change the result. (4) **Retry-exhaustion fallback** — Step 7.5 writes the assembled prompt plus metadata to a sibling `<source-stem>-decomposer-prompt.md` file on exhaustion, with a recovery README naming the next concrete action (paste the prompt into a fresh session, save the JSON response at the target path, then run `/stridify --batch <path>`). **The Stride API POST itself is NOT retried** — Step 9 fails fast on 4xx/5xx and surfaces the response body verbatim. Per-task idempotency on a partially-failed batch is not guaranteed, so an automatic POST retry could double-create some tasks while leaving others to fail again; the recovery contract is "the user reads the verbatim body and re-invokes" rather than "the command retries automatically".
+`/stridify` is designed to survive a transient provider overload or network failure without losing the assembled prompt or producing partial Stride state. The model has four layers, in execution order: (1) **Preflight advisory** — Step 2 prints a one-line suggestion to use `--goal` when the doc enumerates more than 3 surfaces under `## Decomposition seams` (informational, never blocking). (2) **Per-goal partitioning** — Step 1's optional `--goal <name|index>` flag scopes the prompt to one surface from the doc's `## Decomposition seams` section, reducing per-dispatch token count and the blast radius of a single failure. (3) **Subagent dispatch retry** — Step 7c retries the requirements-decomposer dispatch up to **3 attempts** with ~30s / ~90s backoff (total budget ~2 min) when the failure classifies as transient (a provider-overload response such as HTTP 529, a network error, or an "overloaded" error). Terminal classifications (bad subagent name, contract violation, hard 4xx) fail fast on attempt 1 — retrying will not change the result. (4) **Retry-exhaustion fallback** — Step 7.5 writes the assembled prompt plus metadata to a sibling `<source-stem>-decomposer-prompt.md` file on exhaustion, with a recovery README naming the next concrete action (paste the prompt into a fresh session, save the JSON response at the target path, then run `/stridify --batch <path>`). **The Stride API POST itself is NOT retried** — Step 9 fails fast on 4xx/5xx and surfaces the response body verbatim. Per-task idempotency on a partially-failed batch is not guaranteed, so an automatic POST retry could double-create some tasks while leaving others to fail again; the recovery contract is "the user reads the verbatim body and re-invokes" rather than "the command retries automatically".
 
 ## What this command does NOT do
 

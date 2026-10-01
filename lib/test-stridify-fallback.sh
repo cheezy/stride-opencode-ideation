@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tests for the /stride-ideation:stridify Step 7.5 retry-exhaustion fallback
-# documented in commands/stridify.md (W715). The Agent tool is only available
-# inside a live Claude Code session, so this test embeds a reference shell
+# Tests for the /stridify Step 7.5 retry-exhaustion fallback documented in
+# commands/stridify.md (W715). OpenCode's `task` tool (the subagent dispatch)
+# is only available inside a live OpenCode session, so this test embeds a reference shell
 # implementation of the documented retry loop + fallback and exercises it
 # against a mock subagent that always fails.
 #
@@ -46,7 +46,7 @@ fail() {
 
 cat > "$TMP/mock_always_fail.sh" <<'EOF'
 #!/usr/bin/env bash
-echo "Error: HTTP 529 Overloaded — Anthropic API capacity" >&2
+echo "Error: HTTP 529 Overloaded — model provider at capacity" >&2
 exit 2
 EOF
 chmod +x "$TMP/mock_always_fail.sh"
@@ -104,7 +104,7 @@ step_7_5_save_prompt_and_exit() {
     printf '## Subagent prompt (literal — paste this into a fresh session)\n\n'
     printf '````\n%s\n````\n\n' "$prompt"
     printf '## Recovery instructions\n\n'
-    printf 'Paste the prompt block above into a fresh Claude session — any model capable\n'
+    printf 'Paste the prompt block above into a fresh session — any model capable\n'
     printf 'of following the requirements-decomposer contract works. The session does\n'
     printf 'NOT need codebase access. Save the resulting fenced JSON as %s.\n' "$target_batch_path"
     printf 'Then run /stridify --batch on that path to validate, preview and\n'
@@ -129,7 +129,7 @@ step_7_5_save_prompt_and_exit() {
     printf 'Saved decomposer prompt to: %s\n' "$prompt_path"
     printf 'Last error from the final attempt:\n  %s\n' "$(printf '%s' "$last_err" | head -n1)"
     printf '\n'
-    printf 'To recover: paste the prompt block from that file into a fresh Claude\n'
+    printf 'To recover: paste the prompt block from that file into a fresh\n'
     printf 'session; save the JSON response as %s; then run\n' "$target_batch_path"
     printf '`/stridify --batch "%s"` to validate, preview and ship it.\n' "$target_batch_path"
     printf '\nThe Stride API POST was NOT attempted.\n'

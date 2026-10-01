@@ -192,6 +192,26 @@ try {
     Expect-Caught 'lint: catches a file without the fresh-shell rule' 'appears 0 times' $noRule
 
     Write-Host ''
+    Write-Host 'Agent prompt json examples parse'
+    foreach ($agent in (Get-ChildItem -LiteralPath (Join-Path $Bundle 'agents') -Filter '*.md' | Sort-Object Name)) {
+        $agentText = [System.IO.File]::ReadAllText($agent.FullName)
+        $bad = @()
+        $n = 0
+        foreach ($m in [regex]::Matches($agentText, '(?s)```json\n(.*?)```')) {
+            $n++
+            # pwsh 7's ConvertFrom-Json tolerates // comments, which strict
+            # JSON (and /stridify's validator) rejects: use System.Text.Json
+            # there; Windows PowerShell 5.1's parser is already strict.
+            try {
+                if ($PSVersionTable.PSVersion.Major -ge 7) { [System.Text.Json.JsonDocument]::Parse($m.Groups[1].Value).Dispose() }
+                else { $null = $m.Groups[1].Value | ConvertFrom-Json -ErrorAction Stop }
+            } catch { $bad += "block ${n}: $($_.Exception.Message)" }
+        }
+        if ($bad.Count -eq 0) { Pass "agents: every json block in $($agent.Name) parses (a model copying it emits valid JSON)" }
+        else { Fail "agents: a json block in $($agent.Name) does not parse" ($bad -join ' | ') }
+    }
+
+    Write-Host ''
     Write-Host "OpenCode's template expansion leaves the files unchanged"
     $argv = @('docs/x-requirements.md', '--goal', '2')
     foreach ($f in @('ideate.md', 'stridify.md')) {

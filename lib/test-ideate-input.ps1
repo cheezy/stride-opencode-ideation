@@ -25,7 +25,8 @@ Write-Host 'test-ideate-input.ps1 — exercises the --input parse + read-only se
 Write-Host ''
 
 # --- reference flag parser -------------------------------------------------
-# Mirrors commands/ideate.md Step 1. Returns @{ Continue; Input; Remainder }.
+# Mirrors commands/ideate.md Step 1. Returns @{ Continue; Input; Remainder;
+# Error } — Error is non-empty when --continue has no value.
 function Parse-Flags([string]$ArgString) {
     $tokens = @($ArgString -split '\s+' | Where-Object { $_ -ne '' })
     $continuePath = ''
@@ -35,10 +36,17 @@ function Parse-Flags([string]$ArgString) {
     while ($i -lt $tokens.Count) {
         $t = $tokens[$i]
         if ($t -eq '--continue') {
+            # A missing value (end of args, or another --flag next) is an error.
+            if ((($i + 1) -ge $tokens.Count) -or $tokens[$i + 1].StartsWith('--')) {
+                return @{ Continue = ''; Input = ''; Remainder = ''; Error = 'stride-ideation: --continue requires a path to a prior -requirements.md doc' }
+            }
             $i++
-            if ($i -lt $tokens.Count) { $continuePath = $tokens[$i] }
+            $continuePath = $tokens[$i]
         } elseif ($t -like '--continue=*') {
             $continuePath = $t.Substring('--continue='.Length)
+            if (-not $continuePath) {
+                return @{ Continue = ''; Input = ''; Remainder = ''; Error = 'stride-ideation: --continue requires a path to a prior -requirements.md doc' }
+            }
         } elseif ($t -eq '--input') {
             $i++
             if ($i -lt $tokens.Count) { $inputPath = $tokens[$i] }
@@ -49,7 +57,7 @@ function Parse-Flags([string]$ArgString) {
         }
         $i++
     }
-    return @{ Continue = $continuePath; Input = $inputPath; Remainder = ($rest -join ' ') }
+    return @{ Continue = $continuePath; Input = $inputPath; Remainder = ($rest -join ' '); Error = '' }
 }
 
 # --- reference --input validation ------------------------------------------
@@ -173,6 +181,25 @@ try {
     } else {
         Fail 'case 7: empty --input file was rejected by validation'
     }
+
+    # === case 8: --continue accepts both forms (W2192) ====================
+    $c8space = Parse-Flags '--continue docs/a=b-requirements.md extra words'
+    $c8eq = Parse-Flags '--continue=docs/a=b-requirements.md extra words'
+    if (($c8space.Continue -ceq $c8eq.Continue) -and ($c8space.Remainder -ceq $c8eq.Remainder) -and
+        ($c8eq.Continue -ceq 'docs/a=b-requirements.md') -and ($c8eq.Remainder -ceq 'extra words')) {
+        Pass "case 8: --continue=<path> parses like --continue <path> (first '=' split, path with '=' kept, remainder preserved)"
+    } else {
+        Fail 'case 8: --continue forms differ' "space=[$($c8space.Continue)|$($c8space.Remainder)] eq=[$($c8eq.Continue)|$($c8eq.Remainder)]"
+    }
+
+    # === case 9: --continue with no value is an error, not a fresh session ==
+    $c9ok = $true
+    foreach ($a in @('--continue=', 'topic --continue', '--continue --input notes.md')) {
+        $r = Parse-Flags $a
+        if (-not $r.Error) { $c9ok = $false; Fail "case 9: '$a' was accepted" }
+        elseif ($r.Error -notmatch '--continue requires a path') { $c9ok = $false; Fail "case 9: '$a' error message" $r.Error }
+    }
+    if ($c9ok) { Pass 'case 9: --continue=, a trailing --continue, and --continue before another flag all fail with a clear error' }
 } finally {
     Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
 }

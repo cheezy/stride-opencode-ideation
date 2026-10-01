@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for the /stride-ideation:stridify --goal flag (W714):
+# Tests for the /stridify --goal flag (W714):
 #
 #   - sti_extract_seams      parses ## Decomposition seams sections
 #   - sti_resolve_goal       resolves --goal <name|index> against extracted seams

@@ -156,7 +156,7 @@ Validates the requirements doc's seven sections, preflights `.stride_auth.md`, a
 
 - **Preflight advisory** when a doc enumerates more than 3 surfaces under `## Decomposition seams`.
 - **`--goal <name|index>`** scopes the dispatch to a single surface from `## Decomposition seams`.
-- **Bounded decomposer-dispatch retry** — 3 attempts with ~30s / ~90s backoff on HTTP 529 / network / "overloaded" failures.
+- **Bounded decomposer-dispatch retry** — 3 attempts with ~30s / ~90s backoff on HTTP 529 or an "overloaded" error from whichever model provider OpenCode uses, and on network failures.
 - **Fallback** — on retry exhaustion the assembled prompt is written to a sibling `*-decomposer-prompt.md` file. The Stride API POST itself is not retried; re-invoke on a 4xx/5xx.
 
 ## Skill and Agents

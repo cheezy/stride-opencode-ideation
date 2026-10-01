@@ -1,7 +1,7 @@
 ﻿# stride-ideation filename helpers (PowerShell mirror of filename.sh).
 #
-# Six pure functions used by the stride-ideation-ideate and
-# stride-ideation-stridify skills to compute unique artifact paths,
+# Pure functions used by the /ideate and /stridify commands to compute
+# unique artifact paths,
 # extract slugs, parse Decomposition seams, and scope a requirements
 # doc to a single seam. PascalCase-with-hyphen cmdlet names mirror the
 # snake_case bash functions one-to-one:

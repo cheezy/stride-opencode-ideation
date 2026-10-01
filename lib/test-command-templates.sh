@@ -235,6 +235,22 @@ lint_ok "lint: a backticked @agent name is left alone" "$TMP/atref-ok.md"
 printf '```bash\n# Carried forward: none\necho hi\n```\n' > "$TMP/norule.md"
 lint_catches "lint: catches a file without the fresh-shell rule" "appears 0 times" "$TMP/norule.md"
 
+# --- agent prompts: every json example parses ----------------------------------
+
+printf '\nAgent prompt json examples parse\n'
+for agent in "$BUNDLE"/agents/*.md; do
+  if out="$(python3 - "$agent" <<'PY' 2>&1
+import json, re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+for n, block in enumerate(re.findall(r"```json\n(.*?)```", text, re.S), 1):
+    try:
+        json.loads(block)
+    except ValueError as exc:
+        sys.exit(f"block {n}: {exc}")
+PY
+)"; then ok "agents: every json block in $(basename "$agent") parses (a model copying it emits valid JSON)"; else no "agents: a json block in $(basename "$agent") does not parse" "$out"; fi
+done
+
 # --- OpenCode's template expansion ------------------------------------------
 
 printf "\nOpenCode's template expansion leaves the files unchanged\n"
@@ -508,6 +524,10 @@ expect_rc "stridify Step 8a: validates the scratch file" 0
 printf '{"tasks": []}' > "$PROJ/.stride/stridify-subagent-output.json"
 run_frag stridify-step8-1.sh
 expect_rc "stridify Step 8a: rejects an invalid batch" 1
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["goals"][0]["tasks"][0]["description"]="token: stride_dev_TEMPLATES_TEST_0000"; json.dump(d, open(sys.argv[2], "w"))' "$BUNDLE/fixtures/2026-05-12T120000-dark-mode-toggle-stride-batch.json" "$PROJ/.stride/stridify-subagent-output.json"
+run_frag stridify-step8-1.sh
+expect_rc "stridify Step 8a: refuses decomposer output carrying the API token" 1
+if printf '%s' "$OUT$ERR" | grep -qF 'stride_dev_TEMPLATES_TEST_0000'; then no "stridify Step 8a: the refused token is never printed"; else ok "stridify Step 8a: the refused token is never printed"; fi
 
 BATCH="docs/ideation/2026-05-12T120000-dark-mode-toggle-stride-batch.json"
 run_frag stridify-step8-2.sh "REQUIREMENTS_PATH=$REQ" "SOURCE_TS=2026-05-12T120000" "SLUG_FOR_PATH=dark-mode-toggle" "TARGET_PATH=$BATCH"

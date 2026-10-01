@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for lib/ship.sh (the /stride-ideation:stridify Step 3 preflight and
+# Tests for lib/ship.sh (the /stridify Step 3 preflight and
 # Steps 9-10 POST + render) and for the shell-safe output of lib/read_auth.py.
 #
 # curl is replaced by a PATH-prepended fake that counts its invocations,

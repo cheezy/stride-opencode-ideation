@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tests for the /stride-ideation:stridify Step 7 retry classification documented
-# in commands/stridify.md. The Agent tool is only available inside a live
-# Claude Code session, so this test embeds a reference shell implementation of
+# Tests for the /stridify Step 7 retry classification documented in
+# commands/stridify.md. OpenCode's `task` tool (the subagent dispatch) is only
+# available inside a live OpenCode session, so this test embeds a reference shell implementation of
 # the documented retry loop and exercises it against a mock subagent script.
 #
 # The reference implementation below MUST stay consistent with the pseudo-code
@@ -40,7 +40,7 @@ fail() {
 
 # --- mock subagent ----------------------------------------------------------
 #
-# The mock simulates the Agent tool: it consults a per-test counter file and
+# The mock simulates the `task` tool dispatch: it consults a per-test counter file and
 # a per-test mode file, fails the first N calls, then succeeds.
 #
 #   counter file : integer; decremented each call until 0, then mock succeeds
@@ -61,7 +61,7 @@ if [ "$remaining" -gt 0 ]; then
   printf '%s' "$remaining" > "$COUNTER_FILE"
   case "$mode" in
     transient)
-      printf 'Error: HTTP 529 Overloaded — Anthropic API capacity\n' >&2
+      printf 'Error: HTTP 529 Overloaded — model provider at capacity\n' >&2
       exit 2
       ;;
     terminal)

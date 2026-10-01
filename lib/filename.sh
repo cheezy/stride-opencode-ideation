@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # stride-ideation filename helpers.
 #
-# Two pure functions used by /stride-ideation:ideate and
-# /stride-ideation:decompose to compute unique artifact paths:
+# Pure functions used by the /ideate and /stridify commands to compute
+# unique artifact paths (and, further down, slugs and Decomposition seams):
 #
 #   sti_slugify "Add Notifications!"            -> "add-notifications"
 #   sti_unique_path <dir> <ts> <slug> <artifact> <ext>
@@ -56,7 +56,7 @@ sti_slug_from_path() {
   #
   # Strips an optional `-N` collision discriminator inserted by
   # sti_unique_path so reruns inherit the original slug. Used by
-  # /stride-ideation:ideate --continue to lock the topic slug to the source
+  # /ideate --continue to lock the topic slug to the source
   # document's slug — never re-prompts, so the refined doc pairs with the
   # original by filename family.
   local path="${1:-}"

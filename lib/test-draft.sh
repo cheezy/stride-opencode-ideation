@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests for lib/draft.sh — the stride-ideation-ideate intra-session draft
+# Unit tests for lib/draft.sh — the /ideate intra-session draft
 # autosave/resume helpers (W1145). A PowerShell mirror lives at
 # lib/test-draft.ps1.
 #

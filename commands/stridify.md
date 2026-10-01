@@ -42,50 +42,57 @@ Before doing any expensive work, the command must confirm the input is a real, p
 
 2. **Filename family matches.** The path SHOULD end in `-requirements.md`. If it does not, warn but proceed — the slug-extraction step below may still succeed for paths produced by older versions of the plugin, and the section-validation pass below is the authoritative check anyway.
 
-3. **All seven hard-gated sections are present.** Use `grep` to verify that the file contains a level-2 heading for each of: `Problem`, `Goal`, `Outcome`, `Assumptions`, `Constraints`, `Non-goals`, `Success metrics`. Order is not enforced (the doc template orders Problem before Goal, but a hand-edited doc may differ). If any heading is missing, print:
+3. **All seven hard-gated sections are present.** `lib/check_sections.py` checks that the file has a level-2 heading for each of: `Problem`, `Goal`, `Outcome`, `Assumptions`, `Constraints`, `Non-goals`, `Success metrics`. Headings match case-insensitively with trailing whitespace ignored (so the skill's `Success Metrics` and the template's `Success metrics` both pass), headings inside code fences do not count, and order is not enforced (the doc template orders Problem before Goal, but a hand-edited doc may differ):
 
-   > *"stride-ideation: requirements doc is missing required section(s): `<list>`. Either re-run `/ideate --continue <path>` to fill them in, or hand-edit the doc to include the missing sections."*
+   ```bash
+   # Carried forward: REQUIREMENTS_PATH
+   : "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+   # Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+   STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+   if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+   elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+   elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+   else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+   python3 "$STI_LIB/check_sections.py" "$REQUIREMENTS_PATH" || {
+     echo "stride-ideation: either re-run /ideate --continue on this doc to fill them in, or hand-edit the doc to include the missing sections." >&2
+     exit 1
+   }
+   ```
 
-   And exit non-zero. Do NOT proceed with a partial doc — the decomposer subagent's output quality depends on every section being substantive.
+   On a missing section it prints *"stride-ideation: requirements doc is missing required section(s): `<list>`"* plus the remedy line, and exits non-zero. Do NOT proceed with a partial doc — the decomposer subagent's output quality depends on every section being substantive.
 
-4. **Advisory: large-decomposition warning (no exit, never blocks).** If the doc contains a `## Decomposition seams` section AND `GOAL_ARG` is unset (the user did NOT invoke with `--goal`), count surface enumerations under that heading. If the count is **greater than 3**, print a single advisory line to stderr and continue execution — this is a UX hint, not a gate. When `--goal` IS set (per-goal mode), do NOT print this advisory — the user has already partitioned and emitting noise on top is counter-productive. When the seams section is absent or enumerates ≤3 surfaces, also skip the advisory.
+4. **Advisory: large-decomposition warning (never blocks).** If the doc contains a `## Decomposition seams` section AND `GOAL_ARG` is empty (the user did NOT invoke with `--goal`), count the seams under that heading. If the count is **greater than 3**, print a single advisory line to stderr and continue execution — this is a UX hint, not a gate. When `--goal` IS set (per-goal mode), do NOT print this advisory — the user has already partitioned and emitting noise on top is counter-productive. When the seams section is absent or enumerates ≤3 surfaces, also skip the advisory.
 
-   **Surface-count heuristic.** Inside the `## Decomposition seams` section body (from the heading exclusive to the next `^## ` heading or EOF), count lines that match any of these three shapes — surface enumerators are intentionally permissive because the section is freeform:
+   **The count is exactly the set of seams `--goal` accepts.** It comes from `sti_extract_seams`, the same parser Step 2b resolves `--goal` against and Step 7e scopes with, so an advisory that recommends `--goal` can always be followed with `--goal 1` … `--goal N`. One item shape counts per section, by precedence:
 
-   | Shape | Pattern |
-   |---|---|
-   | Level-3 heading | `^### ` |
-   | Numbered list item | `^[[:space:]]*[0-9]+\.[[:space:]]+` |
-   | Bulleted list item | `^[[:space:]]*[-*][[:space:]]+` |
+   | Shape | Item start | Used when |
+   |---|---|---|
+   | Numbered bold item | `1. **Name** …` | any numbered bold item exists |
+   | Bulleted bold item | `- **Name** …` (top level) | no numbered bold items |
+   | Level-3 heading | `### Name` | neither of the above |
 
-   Count each shape independently, then take the **MAX** across the three. The max-of-shapes rule is friendlier than sum-of-shapes when a section mixes a primary numbered list of surfaces with a secondary bulleted list of cross-cutting notes (e.g., "Shared contract" bullets, "Sequencing & dependencies" bullets) — those secondary bullets should not inflate the surface count.
+   So a numbered list's secondary cross-cutting bullets (e.g., "Shared contract" or "Sequencing & dependencies" notes) never inflate the count, and a section written as bullets or headings is countable and addressable just like a numbered one.
 
    ```bash
    # Carried forward: REQUIREMENTS_PATH, GOAL_ARG (empty without --goal)
    : "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
    : "${GOAL_ARG?stride-ideation: GOAL_ARG was not carried forward from Step 1}"
-   if [ -z "${GOAL_ARG:-}" ] && grep -qE '^## Decomposition seams[[:space:]]*$' "$REQUIREMENTS_PATH"; then
-     SEAM_COUNT="$(awk '
-       /^## Decomposition seams[[:space:]]*$/ { in_section=1; next }
-       in_section && /^## / { in_section=0 }
-       in_section && /^### / { h3++ }
-       in_section && /^[[:space:]]*[0-9]+\.[[:space:]]+/ { num++ }
-       in_section && /^[[:space:]]*[-*][[:space:]]+/ { bul++ }
-       END {
-         h3 = h3 + 0; num = num + 0; bul = bul + 0
-         m = h3
-         if (num > m) m = num
-         if (bul > m) m = bul
-         print m
-       }
-     ' "$REQUIREMENTS_PATH")"
+   # Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+   STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+   if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+   elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+   elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+   else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+   . "$STI_LIB/filename.sh" || exit 1
+   if [ -z "$GOAL_ARG" ] && grep -qE '^## Decomposition seams[[:space:]]*$' "$REQUIREMENTS_PATH"; then
+     SEAM_COUNT="$(sti_extract_seams "$REQUIREMENTS_PATH" | grep -c '')"
      if [ "$SEAM_COUNT" -gt 3 ]; then
        echo "stride-ideation: requirements doc enumerates $SEAM_COUNT surfaces under Decomposition seams. Consider running /stridify --goal <name|index> $SEAM_COUNT times to reduce subagent-dispatch failure risk on large decompositions. Continuing with all-goals mode." >&2
      fi
    fi
    ```
 
-   The advisory **never** exits non-zero — it is informational. Users who genuinely want all-goals mode on a 7-surface doc see the line once at the top of the run and ignore it; that is a deliberate trade-off, not a defect.
+   The advisory itself **never** exits non-zero — it is informational; the fragment stops only when it cannot find the helpers (see Running the bash fragments). Users who genuinely want all-goals mode on a 7-surface doc see the line once at the top of the run and ignore it; that is a deliberate trade-off, not a defect.
 
 ### Step 2b: Resolve `--goal` against `## Decomposition seams` (only if `--goal` was set)
 
@@ -144,7 +151,7 @@ esac
 **Pitfalls honored here:**
 - `--goal` is **not** silently ignored on no-match — every miss raises a non-zero exit with the verbatim "did not match" message and a printed list of the actual seams that ARE present.
 - The seams section is **not** required in all docs — `GOAL_ARG` being unset means this step is a no-op. Only when the user explicitly opted into per-goal mode does the absence become an error.
-- The parser does not couple to any markdown shape beyond "level-2 heading `## Decomposition seams` followed by a numbered list of `<N>. **Name** ...` items." Intro prose, trailing prose, and item bodies on subsequent lines are all tolerated — only the bold-named first line of each numbered item is used.
+- The parser does not couple to any markdown shape beyond "level-2 heading `## Decomposition seams` followed by numbered `<N>. **Name** ...` items, or else top-level bulleted `- **Name** ...` items, or else `### Name` headings" (one shape per section, in that precedence — the Step 2 table). Intro prose, trailing prose, and item bodies on subsequent lines are all tolerated — only each item's name is used.
 
 ### Step 3: Preflight auth from `.stride_auth.md`
 
@@ -336,7 +343,7 @@ done
 
 When `GOAL_SLUG` is set, build a scoped prompt in two layers:
 
-1. **Doc surgery.** Use `sti_scope_doc_to_seam` from `lib/filename.sh` to produce a copy of the doc with its `## Decomposition seams` section pruned to keep only the matched seam item. Everything OUTSIDE the seams section (the seven gated sections — Problem, Goal, Outcome, Assumptions, Constraints, Non-goals, Success metrics — plus any Sketch or Open questions content) is preserved verbatim, so the subagent retains the full shared context. Inside the section, intro and trailing prose are dropped and replaced with a one-line notice — only the matched numbered item's lines (start line + any continuation lines until the next item or the section's end) remain.
+1. **Doc surgery.** Use `sti_scope_doc_to_seam` from `lib/filename.sh` to produce a copy of the doc with its `## Decomposition seams` section pruned to keep only the matched seam item. Everything OUTSIDE the seams section (the seven gated sections — Problem, Goal, Outcome, Assumptions, Constraints, Non-goals, Success metrics — plus any Sketch or Open questions content) is preserved verbatim, so the subagent retains the full shared context. Inside the section, intro and trailing prose are dropped and replaced with a one-line notice — only the matched item's lines (start line + any continuation lines until the next item or the section's end) remain. `sti_scope_doc_to_seam` indexes the same items as `sti_extract_seams`, so `GOAL_INDEX` always selects the seam Step 2b resolved, whichever shape the section uses.
 
    ```bash
    # Carried forward: REQUIREMENTS_PATH, GOAL_INDEX
@@ -421,9 +428,8 @@ computed by Step 5; for the run that produced this file, that path was
 
     python3 <STI_LIB>/validate_batch.py <BATCH_TARGET_PATH>
 
-to confirm the JSON parses against the validator's five named checks
-(parse_error / wrong_root_key / empty_goals / goal_missing_field /
-bad_dependency_index). On success, ship it exactly as Step 9 of
+to confirm the JSON passes the validator's named checks (see Step 8a of
+`commands/stridify.md`; the validator's own header lists them). On success, ship it exactly as Step 9 of
 `commands/stridify.md` does:
 
     bash <STI_LIB>/ship.sh <BATCH_TARGET_PATH>
@@ -484,17 +490,17 @@ else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode
 python3 "$STI_LIB/validate_batch.py" .stride/stridify-subagent-output.json || exit 1
 ```
 
-The validator enforces five named checks, in order:
+The validator enforces these named checks, in order (`lib/validate_batch.py`'s header is the authoritative list):
 
 | Check | Failure mode | Example error message |
 |---|---|---|
 | (a) `parse_error` | Input is not valid JSON | `JSON parse failed at line 3 col 7 (char 24): Expecting property name enclosed in double quotes` |
-| (b) `wrong_root_key` | Root has `tasks` or any key other than `goals` | `root key 'tasks' is the most common batch-API mistake — Stride's POST /api/tasks/batch requires root key 'goals'` |
+| (b) `wrong_root_key` | Root has `tasks` instead of `goals`, a stray `tasks` alongside `goals`, or any other key in place of `goals` | `root key 'tasks' is the most common batch-API mistake — Stride's POST /api/tasks/batch requires root key 'goals'` |
 | (c) `empty_goals` | `goals` missing, not an array, or empty | `root.goals is an empty array — the decomposer returned no goals` |
-| (d) `goal_missing_field` | A goal lacks `title`, `type`, or `tasks`, or a task is malformed | `goals[0] is missing required field 'title'` |
+| (d) `goal_missing_field` | A goal lacks `title`, `type`, or `tasks`; or a task is not an object with a non-empty string `title` and a `type` of `work` or `defect` (a task typed `goal` fails) | `goals[0].tasks[1] is missing required field 'type'` |
 | (e) `bad_dependency_index` | A task's `dependencies[]` index is out of range, negative, or a forward / self reference | `goals[0].tasks[1].dependencies references index 5 but goal only has 2 tasks (valid indices 0..1)` |
 
-A validation failure here is a **subagent regression** — the requirements-decomposer agent's contract guarantees a valid root-key=`goals` JSON. If you see one, the agent's prompt has drifted; surface the validator message verbatim and stop. The validator does NOT check per-task Stride-API field shapes — those are the decomposer agent's responsibility, and any slip-through surfaces as a verbatim 422 in Step 9.
+A validation failure here is a **subagent regression** — the requirements-decomposer agent's contract guarantees a valid root-key=`goals` JSON. If you see one, the agent's prompt has drifted; surface the validator message verbatim and stop. Beyond each task's `title` and `type`, the validator does NOT check per-task Stride-API field shapes — those are the decomposer agent's responsibility, and any slip-through surfaces as a verbatim 422 in Step 9.
 
 After the validator returns zero, also confirm that `decomposition_notes` exists at the root. It is required by the subagent contract for documenting cross-goal claim ordering. If the key is missing, set it to an empty string before the next sub-step and emit a one-line warning — but do NOT fail; some single-goal decompositions legitimately have nothing cross-goal to document.
 

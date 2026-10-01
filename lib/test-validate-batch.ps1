@@ -237,6 +237,44 @@ try {
 }
 '@
     Assert-Ok 'valid: string identifier dependencies are not bounds-checked' $f
+    $f = Write-Fixture 'stray_tasks.json' @'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "work"}]}], "tasks": [{"title": "Lost", "type": "work"}]}
+'@
+    Assert-FailsWith "(b) stray root 'tasks' alongside 'goals' fails" $f "stray 'tasks' key alongside 'goals'"
+
+    $f = Write-Fixture 'task_no_title.json' @'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"type": "work"}]}]}
+'@
+    Assert-FailsWith "(d) task missing title — names the field" $f "goals[0].tasks[0] is missing required field 'title'"
+
+    $f = Write-Fixture 'task_no_type.json' @'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T"}]}]}
+'@
+    Assert-FailsWith "(d) task missing type — names the field" $f "goals[0].tasks[0] is missing required field 'type'"
+
+    $f = Write-Fixture 'task_blank_title.json' @'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "  ", "type": "work"}]}]}
+'@
+    Assert-FailsWith "(d) task with a blank title fails" $f "goals[0].tasks[0].title must be a non-empty string"
+
+    $f = Write-Fixture 'task_type_goal.json' @'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "goal"}]}]}
+'@
+    Assert-FailsWith "(d) task of type 'goal' fails" $f "goals[0].tasks[0].type is 'goal'"
+
+    $f = Write-Fixture 'task_type_bad.json' @'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "feature"}]}]}
+'@
+    Assert-FailsWith "(d) task of an unknown type fails" $f "goals[0].tasks[0].type must be 'work' or 'defect'"
+
+    $f = Write-Fixture 'task_not_object.json' @'
+{"goals": [{"title": "G", "type": "goal", "tasks": ["just a string"]}]}
+'@
+    Assert-FailsWith "(d) a non-object task fails" $f "goals[0].tasks[0] must be an object"
+
+    foreach ($fx in (Get-ChildItem -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'fixtures') -Filter '*-stride-batch.json' | Sort-Object Name)) {
+        Assert-Ok "fixture still validates: $($fx.Name)" $fx.FullName
+    }
 } finally {
     Remove-Item -Recurse -Force $TMP -ErrorAction SilentlyContinue
 }

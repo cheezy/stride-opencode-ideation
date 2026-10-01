@@ -421,9 +421,21 @@ cp "$BUNDLE/fixtures/2026-05-12T120000-dark-mode-toggle-requirements.md" "$PROJ/
 printf '\n## Decomposition seams\n\n1. **Kanban app** — owns the contract\n2. **Stride plugin** — adapter\n3. **Docs site** — guides\n4. **CLI** — flags\n' >> "$PROJ/$REQ"
 git -C "$PROJ" add "$REQ" && git -C "$PROJ" commit -q -m "add req"
 
-run_frag stridify-step2-1.sh "REQUIREMENTS_PATH=$REQ" "GOAL_ARG="
+run_frag stridify-step2-1.sh "REQUIREMENTS_PATH=$REQ"
+expect_rc "stridify Step 2.3 section gate: a complete doc passes" 0
+printf '# Thin\n\n## Problem\n\np\n\n## Goal\n\ng\n' > "$PROJ/docs/ideation/thin-requirements.md"
+run_frag stridify-step2-1.sh "REQUIREMENTS_PATH=docs/ideation/thin-requirements.md"
+expect_rc "stridify Step 2.3 section gate: a doc missing sections stops" 1
+expect_has "stridify Step 2.3 section gate: names the missing sections" "$ERR" "missing required section(s): Outcome, Assumptions, Constraints, Non-goals, Success metrics"
+run_frag stridify-step2-2.sh "REQUIREMENTS_PATH=$REQ" "GOAL_ARG="
 expect_rc "stridify Step 2 advisory: runs and never fails" 0
 expect_has "stridify Step 2 advisory: counts 4 surfaces" "$ERR" "enumerates 4 surfaces"
+printf '# B\n\n## Decomposition seams\n\n- **One** — a\n- **Two** — b\n  - nested note\n- **Three** — c\n- **Four** — d\n' > "$PROJ/docs/ideation/bulleted-requirements.md"
+run_frag stridify-step2-2.sh "REQUIREMENTS_PATH=docs/ideation/bulleted-requirements.md" "GOAL_ARG="
+expect_has "stridify Step 2 advisory: counts bulleted seams the resolver accepts" "$ERR" "enumerates 4 surfaces"
+printf '# M\n\n## Decomposition seams\n\n1. **One** — a\n2. **Two** — b\n3. **Three** — c\n\nShared:\n- **X** — n\n- **Y** — n\n- **Z** — n\n- **W** — n\n' > "$PROJ/docs/ideation/mixed-requirements.md"
+run_frag stridify-step2-2.sh "REQUIREMENTS_PATH=docs/ideation/mixed-requirements.md" "GOAL_ARG="
+expect_eq "stridify Step 2 advisory: secondary bullets do not inflate the count (stays quiet at 3)" "$ERR" ""
 
 run_frag stridify-step2b-1.sh "REQUIREMENTS_PATH=$REQ" "GOAL_ARG=2"
 expect_rc "stridify Step 2b: resolves --goal 2" 0

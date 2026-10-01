@@ -9,12 +9,15 @@ Exits 1 on the first violation, printing a single line of the form:
 
     stride-ideation: <error message naming the failing JSON path>
 
-The named error variants are exactly the five the task contract calls out:
+The named error variants:
 
   (a) parse_error           - input is not valid JSON
-  (b) wrong_root_key        - root has 'tasks' or any key other than 'goals'
+  (b) wrong_root_key        - root has 'tasks' (instead of, or alongside,
+                              'goals') or any key other than 'goals'
   (c) empty_goals           - 'goals' is missing, not an array, or empty
-  (d) goal_missing_field    - a goal entry lacks title, type, or tasks
+  (d) goal_missing_field    - a goal entry lacks title, type, or tasks, or a
+                              task is not an object with a non-empty string
+                              title and a type of 'work' or 'defect'
   (e) bad_dependency_index  - a task's dependencies[] index references an
                               array slot that does not exist OR points to a
                               task at or after the referencing task's own
@@ -78,6 +81,14 @@ def validate(path: str) -> "None":
             )
         fail("root object is missing the required 'goals' array")
 
+    if "tasks" in doc:
+        fail(
+            "root has a stray 'tasks' key alongside 'goals' — Stride's "
+            "POST /api/tasks/batch reads only 'goals', so those tasks would be "
+            "silently dropped. Move them into a goal's 'tasks' array or remove "
+            "the root 'tasks' key."
+        )
+
     # (c) empty_goals
     goals = doc["goals"]
     if not isinstance(goals, list):
@@ -120,13 +131,25 @@ def validate(path: str) -> "None":
                 f"own at least one task"
             )
 
-        # (e) bad_dependency_index
         for task_idx, task in enumerate(goal["tasks"]):
+            where = f"goals[{goal_idx}].tasks[{task_idx}]"
+            # (d) goal_missing_field, task level
             if not isinstance(task, dict):
+                fail(f"{where} must be an object, got {type(task).__name__}")
+            for required in ("title", "type"):
+                if required not in task:
+                    fail(f"{where} is missing required field '{required}'")
+            if not isinstance(task["title"], str) or not task["title"].strip():
+                fail(f"{where}.title must be a non-empty string")
+            if task["type"] == "goal":
                 fail(
-                    f"goals[{goal_idx}].tasks[{task_idx}] must be an object, "
-                    f"got {type(task).__name__}"
+                    f"{where}.type is 'goal' — a goal's tasks must be 'work' or "
+                    f"'defect'; goals nest only one level deep"
                 )
+            if task["type"] not in ("work", "defect"):
+                fail(f"{where}.type must be 'work' or 'defect', got {task['type']!r}")
+
+            # (e) bad_dependency_index
             deps = task.get("dependencies", [])
             if not isinstance(deps, list):
                 fail(

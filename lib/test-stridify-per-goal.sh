@@ -430,6 +430,156 @@ else
   fail "case 15d: scoped prompt missing dispatch-scoping notice"
 fi
 
+# === cases 16-22: one seam definition for count, resolve and scope (D313) ===
+
+# seams_doc <file> — write a doc whose seams section body comes from stdin.
+seams_doc() {
+  { printf '# Doc\n\n## Problem\n\np\n\n## Decomposition seams\n\nIntro prose.\n\n'
+    cat
+    printf '\n## Assumptions\n\na\n'
+  } > "$1"
+}
+names_of() { sti_extract_seams "$1" | cut -f2 | tr '\n' '|'; }
+count_of() { sti_extract_seams "$1" | grep -c ''; }
+# The Step 2 advisory's count, computed exactly as commands/stridify.md does.
+advisory_count() { sti_extract_seams "$1" | grep -c ''; }
+
+seams_doc "$TMP/bulleted.md" <<'EOF'
+- **Kanban app** — owns the JSON contract
+- **stride plugin** — adapter
+  - nested note that is not a seam
+- **stride-copilot** — port
+* **Docs site** — guides
+EOF
+if [ "$(count_of "$TMP/bulleted.md")" = "4" ] && [ "$(names_of "$TMP/bulleted.md")" = "Kanban app|stride plugin|stride-copilot|Docs site|" ]; then
+  pass "case 16a: four bulleted bold seams are extracted (nested bullets are not seams)"
+else
+  fail "case 16a: bulleted extraction" "count=$(count_of "$TMP/bulleted.md") names=$(names_of "$TMP/bulleted.md")"
+fi
+case16_ok=1
+for i in 1 2 3 4; do
+  sti_resolve_goal "$TMP/bulleted.md" "$i" > /dev/null || case16_ok=0
+done
+if [ "$case16_ok" = 1 ] && [ "$(advisory_count "$TMP/bulleted.md")" = "4" ]; then
+  pass "case 16b: the advisory counts 4 and --goal 1..4 all resolve (rc 0)"
+else
+  fail "case 16b: advisory and resolver disagree on bulleted seams"
+fi
+case16_scoped="$(sti_scope_doc_to_seam "$TMP/bulleted.md" 2)"
+if printf '%s\n' "$case16_scoped" | grep -qF -- '- **stride plugin** — adapter' \
+   && printf '%s\n' "$case16_scoped" | grep -qF -- '  - nested note that is not a seam' \
+   && ! printf '%s\n' "$case16_scoped" | grep -qE -- '\*\*(Kanban app|stride-copilot|Docs site)\*\*' \
+   && printf '%s\n' "$case16_scoped" | grep -q '^## Assumptions'; then
+  pass "case 16c: scoping a bulleted doc to item 2 keeps only that item (with its nested lines)"
+else
+  fail "case 16c: bulleted scoping" "$(printf '%s\n' "$case16_scoped" | sed -n '/Decomposition seams/,/Assumptions/p')"
+fi
+
+seams_doc "$TMP/headings.md" <<'EOF'
+### Kanban app
+
+Owns the JSON contract.
+
+#### Detail that stays with the item
+
+### stride plugin
+
+Adapter.
+EOF
+if [ "$(names_of "$TMP/headings.md")" = "Kanban app|stride plugin|" ]; then
+  pass "case 17a: ### headings are seams when there are no bold items (#### is not)"
+else
+  fail "case 17a: heading extraction" "names=$(names_of "$TMP/headings.md")"
+fi
+case17_idx="$(sti_resolve_goal "$TMP/headings.md" 2 | cut -f2)"
+case17_slug="$(sti_resolve_goal "$TMP/headings.md" kanban-app | cut -f1)"
+if [ "$case17_idx" = "stride plugin" ] && [ "$case17_slug" = "1" ]; then
+  pass "case 17b: heading seams resolve by index and by slug"
+else
+  fail "case 17b: heading resolution" "idx2=$case17_idx slug->$case17_slug"
+fi
+case17_scoped="$(sti_scope_doc_to_seam "$TMP/headings.md" 1)"
+if printf '%s\n' "$case17_scoped" | grep -q '^#### Detail that stays with the item' \
+   && ! printf '%s\n' "$case17_scoped" | grep -q '^### stride plugin'; then
+  pass "case 17c: scoping a heading doc keeps the item and its sub-headings only"
+else
+  fail "case 17c: heading scoping" "$(printf '%s\n' "$case17_scoped" | sed -n '/Decomposition seams/,/Assumptions/p')"
+fi
+
+seams_doc "$TMP/mixed.md" <<'EOF'
+1. **Kanban app** — contract
+2. **stride plugin** — adapter
+3. **stride-copilot** — port
+
+Shared contract:
+- **JSON schema** — cross-cutting
+- **Auth** — cross-cutting
+- **Versioning** — cross-cutting
+- **Telemetry** — cross-cutting
+- **Docs** — cross-cutting
+EOF
+if [ "$(advisory_count "$TMP/mixed.md")" = "3" ] && [ "$(names_of "$TMP/mixed.md")" = "Kanban app|stride plugin|stride-copilot|" ]; then
+  pass "case 18: a numbered list's secondary bullets are not counted as seams (advisory stays quiet at 3)"
+else
+  fail "case 18: mixed numbered + bullets" "count=$(advisory_count "$TMP/mixed.md") names=$(names_of "$TMP/mixed.md")"
+fi
+
+seams_doc "$TMP/dash-name.md" <<'EOF'
+- **front-end — web** — the UI
+- **back-end** — the API
+EOF
+if [ "$(sti_resolve_goal "$TMP/dash-name.md" 1 | cut -f2)" = "front-end — web" ]; then
+  pass "case 19: a bold name containing dashes is kept verbatim"
+else
+  fail "case 19: dashed name" "$(sti_resolve_goal "$TMP/dash-name.md" 1)"
+fi
+
+seams_doc "$TMP/empty-seams.md" < /dev/null
+sti_resolve_goal "$TMP/empty-seams.md" 1 > /dev/null
+case20_rc=$?
+if [ "$case20_rc" = "4" ] && [ "$(advisory_count "$TMP/empty-seams.md")" = "0" ]; then
+  pass "case 20: an empty seams section counts 0 and resolves rc 4 (contract unchanged)"
+else
+  fail "case 20: empty section" "rc=$case20_rc"
+fi
+
+# An item whose name does not slugify is skipped by BOTH extraction and
+# scoping, so --goal 1 scopes to the item it resolved to.
+seams_doc "$TMP/skew.md" <<'EOF'
+1. **???** — not addressable
+2. **Real** — the only real surface
+EOF
+case21_name="$(sti_resolve_goal "$TMP/skew.md" 1 | cut -f2)"
+case21_scoped="$(sti_scope_doc_to_seam "$TMP/skew.md" 1)"
+if [ "$case21_name" = "Real" ] && printf '%s\n' "$case21_scoped" | grep -qF '2. **Real**' \
+   && ! printf '%s\n' "$case21_scoped" | grep -qF '**???**'; then
+  pass "case 21: scoping uses the resolver's index (an unaddressable item does not shift it)"
+else
+  fail "case 21: index skew" "resolved=$case21_name scoped=$(printf '%s\n' "$case21_scoped" | sed -n '/Decomposition seams/,/Assumptions/p')"
+fi
+
+seams_doc "$TMP/nested-steps.md" <<'EOF'
+- **Kanban app** — owns the contract
+    1. **Schema** — a step, not a seam
+    2. **Migration** — a step, not a seam
+- **stride plugin** — adapter
+EOF
+if [ "$(names_of "$TMP/nested-steps.md")" = "Kanban app|stride plugin|" ] && sti_resolve_goal "$TMP/nested-steps.md" "stride plugin" > /dev/null; then
+  pass "case 23: a nested numbered sub-list under bulleted seams does not take over the section"
+else
+  fail "case 23: nested numbered steps" "names=$(names_of "$TMP/nested-steps.md")"
+fi
+
+# Every index the extractor assigns scopes to the item it names, in every
+# shape.
+case22_ok=1
+for doc in seven-surfaces bulleted headings mixed dash-name; do
+  while IFS="$(printf '\t')" read -r idx name _slug; do
+    sti_scope_doc_to_seam "$TMP/$doc.md" "$idx" | grep -qF -- "$name" || { case22_ok=0; fail "case 22: $doc index $idx does not scope to '$name'"; }
+  done < <(sti_extract_seams "$TMP/$doc.md")
+done
+[ "$case22_ok" = 1 ] && pass "case 22: for every shape, each extracted index scopes to the seam it names"
+
 # === summary ==============================================================
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

@@ -401,6 +401,129 @@ Outcome.
     } else {
         Fail 'case 15d: scoped prompt missing dispatch-scoping notice'
     }
+
+    # === cases 16-22: one seam definition for count, resolve and scope ======
+
+    function New-SeamsDoc([string]$Name, [string]$Body) {
+        $f = Join-Path $TMP $Name
+        $text = "# Doc`n`n## Problem`n`np`n`n## Decomposition seams`n`nIntro prose.`n`n" + $Body + "`n## Assumptions`n`na`n"
+        [System.IO.File]::WriteAllText($f, $text)
+        return $f
+    }
+    function Get-SeamNames([string]$f) { ((@(Sti-ExtractSeams -Path $f) | ForEach-Object { ($_ -split "`t")[1] }) -join '|') + '|' }
+    function Get-SeamCount([string]$f) { @(Sti-ExtractSeams -Path $f).Count }
+    # The Step 2 advisory's count, computed exactly as commands/stridify.md does.
+    function Get-AdvisoryCount([string]$f) { @(Sti-ExtractSeams -Path $f).Count }
+    function Get-Field([string]$tuple, [int]$n) { if ($tuple) { ($tuple -split "`t")[$n] } else { '' } }
+
+    $bulleted = New-SeamsDoc 'bulleted.md' @"
+- **Kanban app** — owns the JSON contract
+- **stride plugin** — adapter
+  - nested note that is not a seam
+- **stride-copilot** — port
+* **Docs site** — guides
+
+"@
+    if (((Get-SeamCount $bulleted) -eq 4) -and ((Get-SeamNames $bulleted) -ceq 'Kanban app|stride plugin|stride-copilot|Docs site|')) {
+        Pass 'case 16a: four bulleted bold seams are extracted (nested bullets are not seams)'
+    } else { Fail 'case 16a: bulleted extraction' "count=$(Get-SeamCount $bulleted) names=$(Get-SeamNames $bulleted)" }
+    $case16ok = $true
+    foreach ($i in 1..4) { Sti-ResolveGoal -Path $bulleted -GoalArg "$i" | Out-Null; if ($LASTEXITCODE -ne 0) { $case16ok = $false } }
+    if ($case16ok -and ((Get-AdvisoryCount $bulleted) -eq 4)) { Pass 'case 16b: the advisory counts 4 and --goal 1..4 all resolve (rc 0)' }
+    else { Fail 'case 16b: advisory and resolver disagree on bulleted seams' }
+    $scoped16 = @(Sti-ScopeDocToSeam -Path $bulleted -Target 2)
+    if (($scoped16 -contains '- **stride plugin** — adapter') -and ($scoped16 -contains '  - nested note that is not a seam') -and
+        -not ($scoped16 | Where-Object { $_ -match '\*\*(Kanban app|stride-copilot|Docs site)\*\*' }) -and
+        ($scoped16 | Where-Object { $_ -match '^## Assumptions' })) {
+        Pass 'case 16c: scoping a bulleted doc to item 2 keeps only that item (with its nested lines)'
+    } else { Fail 'case 16c: bulleted scoping' ($scoped16 -join ' / ') }
+
+    $headings = New-SeamsDoc 'headings.md' @"
+### Kanban app
+
+Owns the JSON contract.
+
+#### Detail that stays with the item
+
+### stride plugin
+
+Adapter.
+
+"@
+    if ((Get-SeamNames $headings) -ceq 'Kanban app|stride plugin|') { Pass 'case 17a: ### headings are seams when there are no bold items (#### is not)' }
+    else { Fail 'case 17a: heading extraction' "names=$(Get-SeamNames $headings)" }
+    $case17idx = Get-Field (Sti-ResolveGoal -Path $headings -GoalArg '2') 1
+    $case17slug = Get-Field (Sti-ResolveGoal -Path $headings -GoalArg 'kanban-app') 0
+    if (($case17idx -ceq 'stride plugin') -and ($case17slug -eq '1')) { Pass 'case 17b: heading seams resolve by index and by slug' }
+    else { Fail 'case 17b: heading resolution' "idx2=$case17idx slug->$case17slug" }
+    $scoped17 = @(Sti-ScopeDocToSeam -Path $headings -Target 1)
+    if (($scoped17 -contains '#### Detail that stays with the item') -and -not ($scoped17 -contains '### stride plugin')) {
+        Pass 'case 17c: scoping a heading doc keeps the item and its sub-headings only'
+    } else { Fail 'case 17c: heading scoping' ($scoped17 -join ' / ') }
+
+    $mixed = New-SeamsDoc 'mixed.md' @"
+1. **Kanban app** — contract
+2. **stride plugin** — adapter
+3. **stride-copilot** — port
+
+Shared contract:
+- **JSON schema** — cross-cutting
+- **Auth** — cross-cutting
+- **Versioning** — cross-cutting
+- **Telemetry** — cross-cutting
+- **Docs** — cross-cutting
+
+"@
+    if (((Get-AdvisoryCount $mixed) -eq 3) -and ((Get-SeamNames $mixed) -ceq 'Kanban app|stride plugin|stride-copilot|')) {
+        Pass "case 18: a numbered list's secondary bullets are not counted as seams (advisory stays quiet at 3)"
+    } else { Fail 'case 18: mixed numbered + bullets' "count=$(Get-AdvisoryCount $mixed) names=$(Get-SeamNames $mixed)" }
+
+    $dashName = New-SeamsDoc 'dash-name.md' @"
+- **front-end — web** — the UI
+- **back-end** — the API
+
+"@
+    if ((Get-Field (Sti-ResolveGoal -Path $dashName -GoalArg '1') 1) -ceq 'front-end — web') { Pass 'case 19: a bold name containing dashes is kept verbatim' }
+    else { Fail 'case 19: dashed name' (Sti-ResolveGoal -Path $dashName -GoalArg '1') }
+
+    $emptySection = New-SeamsDoc 'empty-section.md' ''
+    Sti-ResolveGoal -Path $emptySection -GoalArg '1' | Out-Null
+    $case20rc = $LASTEXITCODE
+    if (($case20rc -eq 4) -and ((Get-AdvisoryCount $emptySection) -eq 0)) { Pass 'case 20: an empty seams section counts 0 and resolves rc 4 (contract unchanged)' }
+    else { Fail 'case 20: empty section' "rc=$case20rc" }
+
+    $skew = New-SeamsDoc 'skew.md' @"
+1. **???** — not addressable
+2. **Real** — the only real surface
+
+"@
+    $case21name = Get-Field (Sti-ResolveGoal -Path $skew -GoalArg '1') 1
+    $scoped21 = @(Sti-ScopeDocToSeam -Path $skew -Target 1)
+    if (($case21name -ceq 'Real') -and ($scoped21 | Where-Object { $_.Contains('2. **Real**') }) -and -not ($scoped21 | Where-Object { $_.Contains('**???**') })) {
+        Pass "case 21: scoping uses the resolver's index (an unaddressable item does not shift it)"
+    } else { Fail 'case 21: index skew' "resolved=$case21name scoped=$($scoped21 -join ' / ')" }
+
+    $nestedSteps = New-SeamsDoc 'nested-steps.md' @"
+- **Kanban app** — owns the contract
+    1. **Schema** — a step, not a seam
+    2. **Migration** — a step, not a seam
+- **stride plugin** — adapter
+
+"@
+    Sti-ResolveGoal -Path $nestedSteps -GoalArg 'stride plugin' | Out-Null
+    if (((Get-SeamNames $nestedSteps) -ceq 'Kanban app|stride plugin|') -and ($LASTEXITCODE -eq 0)) {
+        Pass 'case 23: a nested numbered sub-list under bulleted seams does not take over the section'
+    } else { Fail 'case 23: nested numbered steps' "names=$(Get-SeamNames $nestedSteps)" }
+
+    $case22ok = $true
+    foreach ($doc in @($sevenSurfaces, $bulleted, $headings, $mixed, $dashName)) {
+        foreach ($tuple in @(Sti-ExtractSeams -Path $doc)) {
+            $parts = $tuple -split "`t"
+            $text = (@(Sti-ScopeDocToSeam -Path $doc -Target ([int]$parts[0])) -join "`n")
+            if (-not $text.Contains($parts[1])) { $case22ok = $false; Fail "case 22: $(Split-Path -Leaf $doc) index $($parts[0]) does not scope to '$($parts[1])'" }
+        }
+    }
+    if ($case22ok) { Pass 'case 22: for every shape, each extracted index scopes to the seam it names' }
 } finally {
     Remove-Item -Recurse -Force $TMP -ErrorAction SilentlyContinue
 }

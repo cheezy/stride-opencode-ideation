@@ -80,6 +80,65 @@ sti_slug_from_path() {
   printf '%s' "$slug"
 }
 
+_sti_seam_candidates() {
+  # Internal. Print "<line>\t<name>" for every seam item start inside the
+  # "## Decomposition seams" section of <path>, in document order. The whole
+  # section uses ONE item shape, chosen by precedence:
+  #
+  #   1. numbered bold items   ^ {0,3}<digits>.\s+**<Name>**...  (top level:
+  #                            at most 3 leading spaces, as markdown defines
+  #                            a list item, so a nested numbered sub-list
+  #                            under a bulleted seam never takes over)
+  #   2. top-level bulleted    ^[-*]\s+**<Name>**...   (only if no 1.)
+  #   3. level-3 headings      ^###\s+<Name>            (only if no 1. or 2.)
+  #
+  # so a numbered list's secondary cross-cutting bullets are never seams. A
+  # bold name may not contain `*`; a line that does not match the chosen
+  # shape is part of the item above it. sti_extract_seams and
+  # sti_scope_doc_to_seam both read this list, so they always index the same
+  # items — the index the resolver returns is the item the scoper keeps.
+  awk '
+    /^## Decomposition seams[[:space:]]*$/ { in_s = 1; next }
+    in_s && /^## / { in_s = 0 }
+    in_s {
+      n++; line[n] = NR; text[n] = $0
+      if ($0 ~ /^ ? ? ?[0-9]+\.[[:space:]]+\*\*[^*]+\*\*/) has_num = 1
+      else if ($0 ~ /^[-*][[:space:]]+\*\*[^*]+\*\*/) has_bul = 1
+      else if ($0 ~ /^###[[:space:]]+[^[:space:]]/) has_h3 = 1
+    }
+    END {
+      shape = has_num ? "num" : (has_bul ? "bul" : (has_h3 ? "h3" : ""))
+      for (i = 1; i <= n; i++) {
+        s = text[i]; name = ""
+        if (shape == "num" && s ~ /^ ? ? ?[0-9]+\.[[:space:]]+\*\*[^*]+\*\*/) {
+          sub(/^ ? ? ?[0-9]+\.[[:space:]]+\*\*/, "", s)
+          name = substr(s, 1, index(s, "**") - 1)
+        } else if (shape == "bul" && s ~ /^[-*][[:space:]]+\*\*[^*]+\*\*/) {
+          sub(/^[-*][[:space:]]+\*\*/, "", s)
+          name = substr(s, 1, index(s, "**") - 1)
+        } else if (shape == "h3" && s ~ /^###[[:space:]]+[^[:space:]]/) {
+          sub(/^###[[:space:]]+/, "", s)
+          sub(/[[:space:]]+$/, "", s)
+          name = s
+        }
+        if (name != "") printf "%d\t%s\n", line[i], name
+      }
+    }
+  ' "$1"
+}
+
+_sti_seam_items() {
+  # Internal. Print "<line>\t<name>\t<slug>" for every ADDRESSABLE seam: the
+  # candidates above whose name slugifies. A name that does not slugify is
+  # skipped here, once, for both extraction and scoping.
+  local tab line raw_name slug
+  tab="$(printf '\t')"
+  _sti_seam_candidates "$1" | while IFS="$tab" read -r line raw_name; do
+    slug="$(sti_slugify "$raw_name" 2>/dev/null)" || continue
+    printf '%s\t%s\t%s\n' "$line" "$raw_name" "$slug"
+  done
+}
+
 sti_extract_seams() {
   # Parse a requirements doc's "## Decomposition seams" section and emit one
   # line per surface in the form:
@@ -88,16 +147,15 @@ sti_extract_seams() {
   #
   # <index> is 1-based and re-numbered in document order (the markdown
   # author's literal numbering is ignored — markdown renderers do the same).
-  # <name> is the bold-name verbatim (may contain spaces and dashes).
+  # <name> is the item's name verbatim (may contain spaces and dashes).
   # <slug> is the slugified name via sti_slugify.
   #
-  # Item-start pattern (anchored at line start, leading whitespace tolerated):
-  #
-  #   ^\s*<digits>.\s+\*\*<Name>\*\*...
-  #
-  # Multi-line item bodies are ignored — only the bold-name from the item's
-  # first line yields a seam tuple. Items whose first line lacks **bold**
-  # are silently skipped (they cannot be addressed by --goal anyway).
+  # Accepted item shapes (one per section, by precedence — see
+  # _sti_seam_candidates): numbered `<N>. **Name** ...` items; else top-level
+  # bulleted `- **Name** ...` items; else `### Name` headings. Multi-line
+  # item bodies are ignored — only the name yields a seam tuple. Items
+  # without a bold name (numbered/bulleted) are silently skipped (they
+  # cannot be addressed by --goal anyway), as are names that do not slugify.
   #
   # Exit codes:
   #   0  section present (possibly with zero parseable items)
@@ -114,21 +172,7 @@ sti_extract_seams() {
   if ! grep -qE '^## Decomposition seams[[:space:]]*$' "$path"; then
     return 2
   fi
-  local body
-  body="$(awk '
-    /^## Decomposition seams[[:space:]]*$/ { in_section=1; next }
-    in_section && /^## / { in_section=0 }
-    in_section { print }
-  ' "$path")"
-  local idx=0
-  printf '%s\n' "$body" \
-    | sed -nE 's/^[[:space:]]*[0-9]+\.[[:space:]]+\*\*([^*]+)\*\*.*/\1/p' \
-    | while IFS= read -r raw_name; do
-        local slug
-        slug="$(sti_slugify "$raw_name" 2>/dev/null)" || continue
-        idx=$(( idx + 1 ))
-        printf '%d\t%s\t%s\n' "$idx" "$raw_name" "$slug"
-      done
+  _sti_seam_items "$path" | awk -F'\t' '{ printf "%d\t%s\t%s\n", NR, $2, $3 }'
 }
 
 sti_resolve_goal() {
@@ -227,11 +271,16 @@ sti_scope_doc_to_seam() {
   # to one surface. Emits the doc text on stdout with the section body
   # replaced by a one-line "Scoped to a single surface for this dispatch."
   # notice followed by the matched item's verbatim lines (start line + any
-  # continuation lines until the next numbered item or the section's end).
+  # continuation lines until the next item start or the section's end).
+  #
+  # <seam-index> is the index sti_extract_seams assigns: both read the same
+  # item list (_sti_seam_items), so a resolved --goal always scopes to the
+  # surface it named, whichever item shape the section uses.
   #
   # Content OUTSIDE the section is preserved verbatim. Content inside the
-  # section that is NOT part of any numbered item (intro prose, "The seven
-  # surfaces:" lead-in, etc.) is dropped — the directive line replaces it.
+  # section that is NOT part of the matched item (intro prose, "The seven
+  # surfaces:" lead-in, other items, etc.) is dropped — the directive line
+  # replaces it.
   #
   # Usage: sti_scope_doc_to_seam <markdown-path> <seam-index>
   local path="${1:-}"
@@ -240,8 +289,14 @@ sti_scope_doc_to_seam() {
     echo "sti_scope_doc_to_seam: usage: sti_scope_doc_to_seam <markdown-path> <seam-index>" >&2
     return 1
   fi
-  awk -v target="$target" '
-    BEGIN { state = 0; item_idx = 0; collecting = 0 }
+  local start end
+  start="$(_sti_seam_items "$path" | awk -F'\t' -v t="$target" 'NR == t + 0 && t ~ /^[0-9]+$/ { print $1; exit }')"
+  end=""
+  if [ -n "$start" ]; then
+    end="$(_sti_seam_candidates "$path" | awk -F'\t' -v s="$start" '$1 + 0 > s + 0 { print $1; exit }')"
+  fi
+  awk -v start="${start:-0}" -v end="${end:-0}" '
+    BEGIN { state = 0 }
     # state 0: before the seams section (print verbatim)
     # state 1: inside the seams section (only the matched item is kept)
     # state 2: after the seams section (print verbatim)
@@ -261,11 +316,7 @@ sti_scope_doc_to_seam() {
         print
         next
       }
-      if (match($0, /^[[:space:]]*[0-9]+\.[[:space:]]+\*\*/)) {
-        item_idx = item_idx + 1
-        collecting = (item_idx == target) ? 1 : 0
-      }
-      if (collecting) print
+      if (start > 0 && NR >= start + 0 && (end + 0 == 0 || NR < end + 0)) print
       next
     }
     state == 2 { print; next }

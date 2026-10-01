@@ -257,6 +257,52 @@ EOF
 assert_ok "valid: string identifier dependencies are not bounds-checked" \
   "$TMP/valid_string_dep.json"
 
+cat > "$TMP/stray_tasks.json" <<'EOF'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "work"}]}], "tasks": [{"title": "Lost", "type": "work"}]}
+EOF
+assert_fails_with "(b) stray root 'tasks' alongside 'goals' fails" \
+  "$TMP/stray_tasks.json" "stray 'tasks' key alongside 'goals'"
+
+cat > "$TMP/task_no_title.json" <<'EOF'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"type": "work"}]}]}
+EOF
+assert_fails_with "(d) task missing title — names the field" \
+  "$TMP/task_no_title.json" "goals[0].tasks[0] is missing required field 'title'"
+
+cat > "$TMP/task_no_type.json" <<'EOF'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T"}]}]}
+EOF
+assert_fails_with "(d) task missing type — names the field" \
+  "$TMP/task_no_type.json" "goals[0].tasks[0] is missing required field 'type'"
+
+cat > "$TMP/task_blank_title.json" <<'EOF'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "  ", "type": "work"}]}]}
+EOF
+assert_fails_with "(d) task with a blank title fails" \
+  "$TMP/task_blank_title.json" "goals[0].tasks[0].title must be a non-empty string"
+
+cat > "$TMP/task_type_goal.json" <<'EOF'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "goal"}]}]}
+EOF
+assert_fails_with "(d) task of type 'goal' fails" \
+  "$TMP/task_type_goal.json" "goals[0].tasks[0].type is 'goal'"
+
+cat > "$TMP/task_type_bad.json" <<'EOF'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "T", "type": "feature"}]}]}
+EOF
+assert_fails_with "(d) task of an unknown type fails" \
+  "$TMP/task_type_bad.json" "goals[0].tasks[0].type must be 'work' or 'defect'"
+
+cat > "$TMP/task_not_object.json" <<'EOF'
+{"goals": [{"title": "G", "type": "goal", "tasks": ["just a string"]}]}
+EOF
+assert_fails_with "(d) a non-object task fails" \
+  "$TMP/task_not_object.json" "goals[0].tasks[0] must be an object"
+
+for f in "$SCRIPT_DIR"/../fixtures/*-stride-batch.json; do
+  assert_ok "fixture still validates: $(basename "$f")" "$f"
+done
+
 # --- summary --------------------------------------------------------------
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

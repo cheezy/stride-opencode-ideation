@@ -5,9 +5,9 @@ All notable changes to the Stride Ideation extension for OpenCode are documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-10-01
 
-A hardening pass from a full review of this port (goal G436, 29 findings): the token never reaches a command line or a log, `/stridify` ships through one tested script in bash and PowerShell, every command step runs in the fresh shell OpenCode gives each call, OpenCode's own template expansion no longer corrupts the commands, commits contain only the artifact, autosave works, the validators and the `--goal` resolver agree, the installers never mistake your project for the bundle, a `--batch` recovery mode replaces hand-written curls, the Windows path reaches parity, and the agent prompts and docs stop contradicting themselves. No version is bumped here.
+A hardening pass from a full review of this port (goal G436, 29 findings): the token never reaches a command line or a log, `/stridify` ships through one tested script in bash and PowerShell, every command step runs in the fresh shell OpenCode gives each call, OpenCode's own template expansion no longer corrupts the commands, commits contain only the artifact, autosave works, the validators and the `--goal` resolver agree, the installers never mistake your project for the bundle, a `--batch` recovery mode replaces hand-written curls, the Windows path reaches parity, and the agent prompts and docs stop contradicting themselves.
 
 ### Fixed — `/stridify` ships through one script, with the token off every command line (D316)
 

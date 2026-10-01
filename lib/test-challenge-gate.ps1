@@ -1,4 +1,4 @@
-# PowerShell mirror of test-challenge-gate.sh — asserts the challenge-gate
+﻿# PowerShell mirror of test-challenge-gate.sh — asserts the challenge-gate
 # output shape documented in skills/stride-ideation/SKILL.md ("Challenge gate")
 # and wired into commands/ideate.md (the Step-6 "## Design challenge" template).
 # The gate is an interactive question step — surfaced through OpenCode's

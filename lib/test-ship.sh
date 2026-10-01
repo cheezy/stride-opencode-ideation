@@ -346,6 +346,29 @@ run_ship checkpayload-dash --check-payload -x.json
 rc_is "check-payload: a path starting with '-' is a usage error" 2
 no_temp_left "check-payload: leaves no temp file"
 
+# --- the token check fails closed (lib/ship_support.py has-token) ------------------
+
+SUPPORT="${SCRIPT_DIR}/ship_support.py"
+printf 'x %s y' "$TOKEN" > "$TMP/has-token.txt"
+printf '\357\273\277%s\n' "$TOKEN" | python3 "$SUPPORT" has-token "$TMP/has-token.txt"
+rc_val=$?; [ "$rc_val" = 0 ] && pass "has-token: a BOM-prefixed token on stdin is still found (exit 0)" || fail "has-token: BOM-prefixed token" "rc=$rc_val"
+printf '%s' "$TOKEN" | python3 "$SUPPORT" has-token "$TMP/batch.json"
+rc_val=$?; [ "$rc_val" = 1 ] && pass "has-token: a clean file is reported clean (exit 1)" || fail "has-token: clean file" "rc=$rc_val"
+printf 'not a token!' | python3 "$SUPPORT" has-token "$TMP/batch.json"
+rc_val=$?; [ "$rc_val" = 2 ] && pass "has-token: a token outside the expected charset fails the check (exit 2)" || fail "has-token: malformed token" "rc=$rc_val"
+printf '%s' "$TOKEN" | python3 "$SUPPORT" has-token "$TMP/no-such-file.json" 2>/dev/null
+rc_val=$?; [ "$rc_val" = 2 ] && pass "has-token: an unreadable file fails the check (exit 2)" || fail "has-token: unreadable file" "rc=$rc_val"
+if [ "$(id -u)" != "0" ]; then
+  cp "$TMP/batch.json" "$TMP/unreadable.json"; chmod 000 "$TMP/unreadable.json"
+  run_ship checkpayload-unreadable --check-payload "$TMP/unreadable.json"
+  rc_is "check-payload: a failed token check refuses (exit 1)" 1
+  contains "check-payload: says the file could not be checked" "$C/err" "could not check"
+  chmod 600 "$TMP/unreadable.json"
+else
+  pass "check-payload: a failed token check refuses (exit 1) (skipped as root)"
+  pass "check-payload: says the file could not be checked (skipped as root)"
+fi
+
 # --- failures before any request ------------------------------------------------
 
 # The configured token pasted into task text is refused before any request.

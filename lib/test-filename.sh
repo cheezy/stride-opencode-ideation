@@ -168,6 +168,18 @@ assert_eq "goal_fields: chains from sti_resolve_goal by name" \
   "GOAL_INDEX=2|GOAL_NAME=stride plugin|GOAL_SLUG=stride-plugin|"
 rm -f "$DOC"
 
+# --- resolve_goal: numeric index parity with the PowerShell twin -------------
+
+DOC="$(mktemp)"
+printf '# T\n\n## Decomposition seams\n\n1. **Kanban app** — a\n2. **stride plugin** — b\n' > "$DOC"
+assert_eq "resolve_goal: '01' selects seam 1 (numeric, both twins agree)" "$(sti_resolve_goal "$DOC" 01 | cut -f1)" "1"
+assert_eq "resolve_goal: '1' selects seam 1" "$(sti_resolve_goal "$DOC" 1 | cut -f1)" "1"
+assert_eq "resolve_goal: '002' selects seam 2" "$(sti_resolve_goal "$DOC" 002 | cut -f1)" "2"
+assert_eq "resolve_goal: a slug selects its seam" "$(sti_resolve_goal "$DOC" stride-plugin | cut -f1)" "2"
+sti_resolve_goal "$DOC" 010 > /dev/null 2>&1
+assert_eq "resolve_goal: '010' (out of range) does not match (rc 3)" "$?" "3"
+rm -f "$DOC"
+
 # --- summary ---------------------------------------------------------------
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

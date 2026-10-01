@@ -1,4 +1,4 @@
-# PowerShell mirror of test-check-sections.sh — tests for lib/check_sections.py,
+﻿# PowerShell mirror of test-check-sections.sh — tests for lib/check_sections.py,
 # the /stridify Step 2.3 gate that every requirements doc carries the seven
 # hard-gated sections. Same cases, same labels, same order.
 #

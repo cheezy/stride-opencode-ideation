@@ -1,4 +1,4 @@
-# PowerShell mirror of test-commit-scope.sh — checks that the commit
+﻿# PowerShell mirror of test-commit-scope.sh — checks that the commit
 # fragments in /ideate (Step 9) and /stridify (Step 8d) commit ONLY the
 # artifact they wrote, leaving a user's other staged work staged.
 #

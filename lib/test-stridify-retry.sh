@@ -275,6 +275,17 @@ else
   fail "case 8: retry log too long (${log_lines} lines) — prompt may be leaking" "$(cat "$TMP/log8")"
 fi
 
+# --- the documented schedule in commands/stridify.md -----------------------
+# The same sentinels lib/test-stridify-retry.ps1 asserts: the reference loop
+# above must match what the command actually documents.
+
+STRIDIFY_MD="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/commands/stridify.md"
+if [ -f "$STRIDIFY_MD" ] && grep -qF 'sleep 30' "$STRIDIFY_MD" && grep -qF 'sleep 90' "$STRIDIFY_MD" && grep -qF 'MAX_ATTEMPTS=3' "$STRIDIFY_MD"; then
+  pass "stridify.md documents 3-attempt retry with 30s/90s backoff"
+else
+  fail "stridify.md retry-schedule sentinels missing or command file not found"
+fi
+
 # --- summary ---------------------------------------------------------------
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

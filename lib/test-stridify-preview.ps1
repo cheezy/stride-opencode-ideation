@@ -1,4 +1,4 @@
-# PowerShell mirror of test-stridify-preview.sh — exercises the
+﻿# PowerShell mirror of test-stridify-preview.sh — exercises the
 # /stridify Step 8.5 preview-and-approval gate and the Step 1
 # --yes / --auto-approve bypass documented in
 # commands/stridify.md (W1161; ports upstream G235/W1140).

@@ -107,47 +107,19 @@ read_auth() {
 }
 
 # print_scrubbed FILE — copy FILE to stderr verbatim except that credentials
-# become [REDACTED]: the token itself, also in JSON-escaped (\/) or
-# percent-encoded form; anything shaped like a Stride token
-# (stride_<env>_<base64>, which also catches a truncated echo); and the value
-# of any "Bearer <value>". The token reaches python on stdin, never on argv
-# or in its environment.
+# become [REDACTED] (lib/ship_support.py scrub: the token raw, JSON-escaped or
+# percent-encoded; anything Stride-token-shaped; any "Bearer <value>"). The
+# token reaches python on stdin, never on argv or in its environment.
 print_scrubbed() {
-  printf '%s' "$STRIDE_API_TOKEN" | python3 -c '
-import re, sys
-token = sys.stdin.read()
-with open(sys.argv[1], "rb") as fp:
-    body = fp.read()
-if token:
-    # One pattern per token character: a literal, its %XX escape in either
-    # hex case, and for "/" the JSON-escaped "\/" too.
-    parts = []
-    for ch in token:
-        alts = [re.escape(ch.encode())]
-        if not ch.isalnum() and ch != "_":
-            alts.append(b"%%%02X" % ord(ch))
-            alts.append(b"%%%02x" % ord(ch))
-        if ch == "/":
-            alts.append(rb"\\/")
-        parts.append(b"(?:" + b"|".join(alts) + b")")
-    body = re.sub(b"".join(parts), b"[REDACTED]", body)
-body = re.sub(rb"stride_[a-z]{2,10}_[A-Za-z0-9+/=%\\_.-]{8,}", b"[REDACTED]", body)
-body = re.sub(rb"(?i)(bearer(?:\s|%20|&nbsp;)+)[^\s\x22\x27<>]+", rb"\1[REDACTED]", body)
-sys.stderr.buffer.write(body)
-' "$1"
+  printf '%s' "$STRIDE_API_TOKEN" | python3 "$SCRIPT_DIR/ship_support.py" scrub "$1"
 }
 
-# file_has_token <file> — exit 0 when <file> contains the configured token
-# (raw or JSON-escaped). The token reaches python on stdin, never argv or
-# env; a match prints no value.
-file_has_token() {
-  ! printf '%s' "$STRIDE_API_TOKEN" | python3 -c '
-import sys
-token = sys.stdin.read()
-body = open(sys.argv[1], "rb").read()
-if token and (token.encode() in body or token.replace("/", "\\/").encode() in body):
-    sys.exit(1)
-' "$1"
+# token_check <file> — return 0 when <file> contains the configured token
+# (raw or JSON-escaped), 1 when it does not, 2 when the check failed. Callers
+# treat only 1 as clean, so a failed check refuses rather than sends. The
+# token reaches python on stdin, never argv or env; a match prints no value.
+token_check() {
+  printf '%s' "$STRIDE_API_TOKEN" | python3 "$SCRIPT_DIR/ship_support.py" has-token "$1"
 }
 
 if [ "$#" -eq 2 ] && [ "$1" = "--check-payload" ]; then
@@ -163,9 +135,15 @@ if [ "$#" -eq 2 ] && [ "$1" = "--check-payload" ]; then
     exit 1
   fi
   read_auth
-  if file_has_token "$2"; then
+  token_check "$2"
+  check_rc=$?
+  if [ "$check_rc" -eq 0 ]; then
     unset STRIDE_API_TOKEN
     echo "stride-ideation: $2 contains the configured Stride API token; nothing was shown or sent. Remove it from the file and retry." >&2
+    exit 1
+  elif [ "$check_rc" -ne 1 ]; then
+    unset STRIDE_API_TOKEN
+    echo "stride-ideation: could not check $2 for the configured Stride API token; nothing was shown or sent." >&2
     exit 1
   fi
   unset STRIDE_API_TOKEN
@@ -217,8 +195,13 @@ read_auth
 # transcript or a decomposer that read the wrong file could carry it into the
 # batch, which is POSTed where every board member can read it. The token
 # reaches python on stdin, never argv or env; matches print no value.
-if file_has_token "$PAYLOAD_FILE"; then
+token_check "$PAYLOAD_FILE"
+check_rc=$?
+if [ "$check_rc" -eq 0 ]; then
   echo "stride-ideation: the batch contains the configured Stride API token; nothing was sent. Remove it from $BATCH_PATH and retry." >&2
+  exit 1
+elif [ "$check_rc" -ne 1 ]; then
+  echo "stride-ideation: could not check the payload for the configured Stride API token; nothing was sent." >&2
   exit 1
 fi
 
@@ -277,52 +260,11 @@ case "$HTTP_CODE" in
     ;;
 esac
 
-# (10) Render the created identifiers. The table is built in full before
-# anything is printed, so an unexpected shape never leaves half a table.
-# Exit 3: 2xx but not renderable. Exit 4: 2xx listing no goals at all.
-python3 - "$RESPONSE_FILE" <<'PY'
-import json
-import sys
-
-try:
-    with open(sys.argv[1], "r", encoding="utf-8") as fp:
-        data = json.load(fp)
-except (OSError, ValueError):
-    sys.exit(3)
-
-# The server answers {"success": true, "total": N, "goals": [{"goal": {...},
-# "child_tasks": [...]}, ...]} (docs/api/post_tasks_batch.md). Older and
-# test responses put identifier/title/tasks directly on each goal entry, and
-# may wrap everything in "data". Accept both; anything else is unrenderable.
-container = data.get("data", data) if isinstance(data, dict) else None
-goals = container.get("goals") if isinstance(container, dict) else None
-if not isinstance(goals, list):
-    sys.exit(3)
-if not goals:
-    sys.exit(4)
-
-
-def ident(item):
-    value = item.get("identifier") if isinstance(item, dict) else None
-    if not isinstance(value, str) or not value:
-        sys.exit(3)
-    return value
-
-
-lines = ["", "Created goals and tasks:", ""]
-for entry in goals:
-    if not isinstance(entry, dict):
-        sys.exit(3)
-    goal = entry["goal"] if isinstance(entry.get("goal"), dict) else entry
-    tasks = entry.get("child_tasks", entry.get("tasks")) or []
-    if not isinstance(tasks, list):
-        sys.exit(3)
-    lines.append(f"  {ident(goal):>6}  {goal.get('title') or '(no title)'}")
-    for task in tasks:
-        lines.append(f"  {ident(task):>6}    {task.get('title') or '(no title)'}")
-lines.append("")
-print("\n".join(lines))
-PY
+# (10) Render the created identifiers (lib/ship_support.py render). The table
+# is built in full before anything is printed, so an unexpected shape never
+# leaves half a table. Exit 3: 2xx but not renderable. Exit 4: 2xx listing no
+# goals at all.
+python3 "$SCRIPT_DIR/ship_support.py" render "$RESPONSE_FILE"
 RENDER_EXIT=$?
 
 if [ "$RENDER_EXIT" -eq 0 ]; then

@@ -1,4 +1,4 @@
-# stride-ideation intra-session draft autosave helpers
+﻿# stride-ideation intra-session draft autosave helpers
 # (PowerShell mirror of lib/draft.sh).
 #
 # Six pure cmdlets used by the /ideate command to persist an

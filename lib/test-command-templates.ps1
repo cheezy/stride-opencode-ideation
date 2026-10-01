@@ -1,4 +1,4 @@
-# PowerShell mirror of test-command-templates.sh — the static half: lints
+﻿# PowerShell mirror of test-command-templates.sh — the static half: lints
 # commands/ideate.md and commands/stridify.md for dollar-digit sequences
 # (OpenCode's command expansion rewrites them with the user's arguments),
 # <plugin-root> placeholders, the fresh-shell rule, and per-block helper

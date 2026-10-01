@@ -1,4 +1,4 @@
-# PowerShell mirror of test-stridify-fallback.sh — tests for the
+﻿# PowerShell mirror of test-stridify-fallback.sh — tests for the
 # /stride-ideation:stridify Step 7.5 retry-exhaustion fallback documented in
 # commands/stridify.md (W715). The Agent tool is only available inside a live
 # session, so this test embeds a reference PowerShell implementation of the

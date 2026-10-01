@@ -1,4 +1,4 @@
-# End-to-end smoke test for the stride-ideation-stridify pipeline.
+﻿# End-to-end smoke test for the stride-ideation-stridify pipeline.
 # PowerShell mirror of run_smoke_test.sh — composes every helper the
 # stridify skill body invokes (in the same order) and verifies each
 # stage produces the expected output. The final HTTP POST is dry-run
@@ -10,10 +10,10 @@
 #       Dry-run mode. Uses fixtures/2026-05-12T120000-dark-mode-toggle-stride-batch.json.
 #
 #   pwsh -File lib\run_smoke_test.ps1 -Live <stride-batch.json>
-#       LIVE mode. Reads auth from the project directory's .stride_auth.md
-#       (resolved OPENCODE_PROJECT_DIR, then CLAUDE_PROJECT_DIR, then pwd)
-#       and POSTs the supplied batch to the Stride API. Use a dev
-#       Stride instance — this creates real tasks.
+#       LIVE mode. Ships the supplied batch through lib/ship.ps1, which reads
+#       .stride_auth.md ($env:STRIDE_AUTH_FILE, else the git toplevel, else the
+#       current directory) and POSTs it with the token kept off every command
+#       line. Use a dev Stride instance — this creates real tasks.
 #
 # Exit code: 0 if every stage passes; 1 on the first failure.
 
@@ -246,48 +246,16 @@ if (Test-Path -LiteralPath $gateFixture) {
 if ($Mode -eq 'live') {
     Write-Host ''
     Write-Host 'Stage 7: LIVE POST to the Stride API (NOTE: creates real tasks)'
-    $projectDir = if ($env:OPENCODE_PROJECT_DIR) { $env:OPENCODE_PROJECT_DIR } elseif ($env:CLAUDE_PROJECT_DIR) { $env:CLAUDE_PROJECT_DIR } else { (Get-Location).Path }
-    $authFile = Join-Path $projectDir '.stride_auth.md'
-    if (-not (Test-Path -LiteralPath $authFile)) {
-        Fail "-Live requires .stride_auth.md at $authFile"
+    # Ship through lib/ship.ps1 — the PowerShell twin of the lib/ship.sh call
+    # /stridify Step 9 makes — in a child pwsh so its exit code is real. Its
+    # stdout and stderr (verbatim body on failure, identifier table on
+    # success) pass straight through.
+    $pwshExe = (Get-Process -Id $PID).Path
+    & $pwshExe -NoProfile -NonInteractive -File (Join-Path $ScriptDir 'ship.ps1') $BatchPath
+    if ($LASTEXITCODE -eq 0) {
+        Pass 'live: lib/ship.ps1 shipped the batch'
     } else {
-        $liveAuthErr = New-TemporaryFile
-        $liveAuthOut = & python3 (Join-Path $ScriptDir 'read_auth.py') $authFile 2>$liveAuthErr.FullName
-        if ($LASTEXITCODE -eq 0) {
-            $apiUrl = $null
-            $apiToken = $null
-            foreach ($line in $liveAuthOut) {
-                if ($line -match '^STRIDE_API_URL=(.+)$') { $apiUrl = $matches[1] }
-                if ($line -match '^STRIDE_API_TOKEN=(.+)$') { $apiToken = $matches[1] }
-            }
-            if (-not $apiUrl -or -not $apiToken) {
-                Fail "live: read_auth.py output missing URL or TOKEN"
-            } else {
-                $payload = & python3 (Join-Path $ScriptDir 'strip_audit_fields.py') $BatchPath
-                $headers = @{ Authorization = "Bearer $apiToken"; 'Content-Type' = 'application/json' }
-                try {
-                    $resp = Invoke-RestMethod -Method Post -Uri "$apiUrl/api/tasks/batch" -Headers $headers -Body $payload -ErrorAction Stop
-                    Pass "live POST returned 2xx"
-                    Write-Host "`nCreated identifiers:"
-                    $container = if ($resp.data) { $resp.data } else { $resp }
-                    foreach ($g in $container.goals) {
-                        Write-Host ("  {0,6}  {1}" -f $g.identifier, $g.title)
-                        foreach ($t in $g.tasks) {
-                            Write-Host ("  {0,6}    {1}" -f $t.identifier, $t.title)
-                        }
-                    }
-                } catch {
-                    Fail "live POST failed: $($_.Exception.Message)"
-                }
-            }
-            # Paranoia: drop the token from the shell as soon as we're done.
-            $apiToken = $null
-            Remove-Variable -Name apiToken -ErrorAction SilentlyContinue
-        } else {
-            $errText = Get-Content -Raw -LiteralPath $liveAuthErr.FullName -ErrorAction SilentlyContinue
-            Fail "live: read_auth.py failed" $errText
-        }
-        Remove-Item -Force $liveAuthErr.FullName -ErrorAction SilentlyContinue
+        Fail 'live: lib/ship.ps1 exited non-zero (its stderr is above)'
     }
 }
 

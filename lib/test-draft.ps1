@@ -1,4 +1,4 @@
-# PowerShell mirror of test-draft.sh — unit tests for lib/draft.ps1, the
+﻿# PowerShell mirror of test-draft.sh — unit tests for lib/draft.ps1, the
 # stride-ideation-ideate intra-session draft autosave/resume helpers (W1145).
 #
 # Run:

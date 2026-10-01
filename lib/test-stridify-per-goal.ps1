@@ -1,4 +1,4 @@
-# PowerShell mirror of test-stridify-per-goal.sh — tests for the
+﻿# PowerShell mirror of test-stridify-per-goal.sh — tests for the
 # /stride-ideation:stridify --goal flag (W714):
 #
 #   - Sti-ExtractSeams     parses ## Decomposition seams sections

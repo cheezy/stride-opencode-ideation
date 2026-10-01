@@ -1,11 +1,12 @@
-# PowerShell mirror of test-filename.sh — unit tests for lib/filename.ps1
-# (Sti-Slugify + Sti-UniquePath + Sti-SlugFromPath).
+﻿# PowerShell mirror of test-filename.sh — unit tests for lib/filename.ps1
+# (Sti-Slugify, Sti-UniquePath, Sti-SlugFromPath, Sti-GoalFields and the
+# Sti-ResolveGoal index cases).
 #
 # Full-parity port: every assertion in test-filename.sh has a 1:1 counterpart
 # here, with the same case labels in the same order. This file additionally
 # keeps 4 PowerShell-only assertions (two extra slugify rule variants plus the
-# empty-input and whitespace-only error cases), so it reports 22 assertions
-# where the sh twin reports 18 — the +4 surplus is intentional.
+# empty-input and whitespace-only error cases), so it reports 4 more
+# assertions than the sh twin — the surplus is intentional.
 #
 # Run:
 #   pwsh -File lib/test-filename.ps1
@@ -176,6 +177,19 @@ $tuple = Sti-ResolveGoal -Path $doc -GoalArg 'stride plugin'
 Assert-Equal 'goal_fields: chains from Sti-ResolveGoal by name' `
     'GOAL_INDEX=2|GOAL_NAME=stride plugin|GOAL_SLUG=stride-plugin' `
     ((Sti-GoalFields $tuple) -join '|')
+Remove-Item -LiteralPath $doc -Force
+
+# --- resolve_goal: numeric index parity with the bash twin -------------------
+
+$doc = [System.IO.Path]::GetTempFileName()
+Set-Content -LiteralPath $doc -Value "# T`n`n## Decomposition seams`n`n1. **Kanban app** - a`n2. **stride plugin** - b"
+function First-Field($t) { if ($t) { ($t -split "`t")[0] } else { '' } }
+Assert-Equal "resolve_goal: '01' selects seam 1 (numeric, both twins agree)" '1' (First-Field (Sti-ResolveGoal -Path $doc -GoalArg '01'))
+Assert-Equal "resolve_goal: '1' selects seam 1" '1' (First-Field (Sti-ResolveGoal -Path $doc -GoalArg '1'))
+Assert-Equal "resolve_goal: '002' selects seam 2" '2' (First-Field (Sti-ResolveGoal -Path $doc -GoalArg '002'))
+Assert-Equal 'resolve_goal: a slug selects its seam' '2' (First-Field (Sti-ResolveGoal -Path $doc -GoalArg 'stride-plugin'))
+Sti-ResolveGoal -Path $doc -GoalArg '010' | Out-Null
+Assert-Equal "resolve_goal: '010' (out of range) does not match (rc 3)" '3' "$LASTEXITCODE"
 Remove-Item -LiteralPath $doc -Force
 
 # --- summary ---------------------------------------------------------------

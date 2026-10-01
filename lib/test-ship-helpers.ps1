@@ -1,4 +1,4 @@
-# PowerShell mirror of test-ship-helpers.sh — unit tests for the
+﻿# PowerShell mirror of test-ship-helpers.sh — unit tests for the
 # /stride-ideation:ship helpers:
 #
 #   - lib/strip_audit_fields.py  strips source_spec/sha256/decomposition_notes

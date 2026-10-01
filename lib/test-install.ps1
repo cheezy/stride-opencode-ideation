@@ -1,4 +1,4 @@
-# PowerShell mirror of test-install.sh — tests for install.ps1: source
+﻿# PowerShell mirror of test-install.sh — tests for install.ps1: source
 # detection (local checkout vs. `irm | iex` vs. a user's project that merely
 # looks like a bundle), the bundle-owned stride-ideation/ helper layout,
 # legacy-file handling, -Global on a portable home directory, and the

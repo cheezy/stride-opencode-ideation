@@ -1,4 +1,4 @@
-# PowerShell mirror of test-stridify-retry.sh — exercises the classifier
+﻿# PowerShell mirror of test-stridify-retry.sh — exercises the classifier
 # logic the Step 7c retry loop uses to bucket subagent dispatch outcomes
 # into success / transient / terminal categories.
 #

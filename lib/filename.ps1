@@ -1,4 +1,4 @@
-# stride-ideation filename helpers (PowerShell mirror of filename.sh).
+﻿# stride-ideation filename helpers (PowerShell mirror of filename.sh).
 #
 # Six pure functions used by the stride-ideation-ideate and
 # stride-ideation-stridify skills to compute unique artifact paths,
@@ -190,11 +190,16 @@ function Sti-ResolveGoal {
         $global:LASTEXITCODE = 4
         return
     }
-    # If GoalArg is purely digits, try integer-index first.
+    # If GoalArg is purely digits, try integer-index first. Compare as numbers,
+    # as sti_resolve_goal's awk does, so '01' and '1' both select seam 1:
+    # strip leading zeros rather than parse, so an arbitrarily long digit
+    # string can never overflow.
     if ($GoalArg -match '^[0-9]+$') {
+        $wantIndex = $GoalArg.TrimStart('0')
+        if (-not $wantIndex) { $wantIndex = '0' }
         foreach ($tuple in $seams) {
             $parts = $tuple -split "`t"
-            if ($parts[0] -eq $GoalArg) {
+            if ($parts[0] -eq $wantIndex) {
                 Write-Output $tuple
                 $global:LASTEXITCODE = 0
                 return

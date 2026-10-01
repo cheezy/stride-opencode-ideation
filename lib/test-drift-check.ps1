@@ -1,4 +1,4 @@
-# PowerShell mirror of test-drift-check.sh — unit tests for lib/drift_check.py.
+﻿# PowerShell mirror of test-drift-check.sh — unit tests for lib/drift_check.py.
 #
 # Full-parity port: every assertion in test-drift-check.sh has a 1:1
 # counterpart here, with the same case labels in the same order.

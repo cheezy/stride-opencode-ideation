@@ -1,4 +1,4 @@
-# PowerShell mirror of test-ideate-input.sh — exercises the
+﻿# PowerShell mirror of test-ideate-input.sh — exercises the
 # /ideate --input <file> brain-dump seed documented in
 # commands/ideate.md (W1158; ports upstream G235/W1137).
 #

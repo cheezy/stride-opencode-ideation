@@ -1,4 +1,4 @@
-# PowerShell mirror of test-stamping.sh — verifies source_spec_sha256
+﻿# PowerShell mirror of test-stamping.sh — verifies source_spec_sha256
 # stamping is correct against the dark-mode-toggle fixture.
 
 Set-StrictMode -Version Latest

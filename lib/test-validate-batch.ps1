@@ -1,4 +1,4 @@
-# PowerShell mirror of test-validate-batch.sh — unit tests for
+﻿# PowerShell mirror of test-validate-batch.sh — unit tests for
 # lib/validate_batch.py.
 #
 # Each test feeds a fixture JSON document to the validator and asserts the

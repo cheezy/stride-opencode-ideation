@@ -107,7 +107,7 @@ step_7_5_save_prompt_and_exit() {
     printf 'Paste the prompt block above into a fresh Claude session — any model capable\n'
     printf 'of following the requirements-decomposer contract works. The session does\n'
     printf 'NOT need codebase access. Save the resulting fenced JSON as %s.\n' "$target_batch_path"
-    printf 'Then run python3 <plugin-root>/lib/validate_batch.py on that path, and\n'
+    printf 'Then run python3 <STI_LIB>/validate_batch.py on that path, and\n'
     printf 'ship it with lib/ship.sh per Step 9 of commands/stridify.md.\n\n'
     printf 'This sibling file contains NO authentication material — the decomposer\n'
     printf 'prompt has no API access by construction.\n'

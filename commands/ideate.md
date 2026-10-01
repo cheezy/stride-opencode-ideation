@@ -10,7 +10,14 @@ Drive an interactive ideation session that produces a committed `*-requirements.
 
 The user's invocation arguments are available as `$ARGUMENTS`. Parse `--continue <path>`, `--input <path>`, and `--profile <name>` out of `$ARGUMENTS` per Step 1; everything remaining is the topic. The protocol contract (the seven-section hard gate, the rounds, the framing checkpoint, the premortem, the profiles) lives in the `stride-ideation` skill — this command defers to it and never reimplements it.
 
-When you need to run shell, execute it with `bash`, one command at a time, checking the result before proceeding.
+### Running the bash fragments
+
+**Every bash call is a fresh shell.** OpenCode's `bash` tool starts a new process for each call, so variables, sourced functions and the result of an earlier fragment do not survive into the next call. Each fragment below is self-contained: it finds and sources the helper it needs itself and starts from the values you hand it. Run each fragment as one `bash` call and check its result before going on.
+
+- **Helper paths.** A fragment that needs a helper finds the installed `lib/` itself, in this order: the project install (`.opencode/stride-ideation/lib` at the git toplevel), the global install (`~/.config/opencode/stride-ideation/lib`), and — only when the project *is* a `stride-opencode-ideation` checkout, with the same marker files the installer checks (`commands/stridify.md`, `commands/ideate.md`, `install.sh`, `AGENTS.md`, `skills/`) — that checkout's `lib/`. A project install is trusted ahead of the global one, the same way OpenCode trusts a project's own `.opencode/` commands: in a repository you do not trust, check its `.opencode/` before running these commands there. It never takes a helper path from an argument, a carried value or an environment variable. If a fragment stops with `cannot find the stride-ideation helpers`, stop the session and tell the user to run the installer; never guess a path.
+- **Carry values forward as literals.** A fragment's first comment line, `# Carried forward: ...`, names the values it needs from earlier steps. Prepend one single-quoted assignment per name to the same `bash` call, e.g. `SLUG='dark-mode-toggle'`. Write a single quote inside a value as `'\''` (so `Bob's idea` becomes `TOPIC='Bob'\''s idea'`), write an empty value as `NAME=''`, and never paste a value unquoted. The fragment checks each one and stops with `... was not carried forward` if you missed one; fix the prefix and re-run that step.
+- **Values a fragment produces** are printed as `carry: NAME=value` lines. Carry them into later steps exactly as printed.
+- **No dollar-sign-plus-digit sequences.** OpenCode replaces each one in this file with the matching invocation argument before you read it, so the fragments use `cut`, `read` and helper functions instead of positional fields. Keep it that way when editing this file.
 
 ## What to do
 
@@ -38,48 +45,75 @@ Validate `INPUT_PATH` immediately, mirroring the `CONTINUE_PATH` existence check
 
 ### Step 2: Capture the session timestamp
 
-Run `date -u +%Y-%m-%dT%H%M%S` once via `bash` and store the result as `SESSION_TS`. This single value MUST be used for every artifact written during this session — do not recompute it later. Capturing the timestamp at invocation time is what makes re-runs sortable and keeps the requirements doc / decomposition output paired by prefix.
+Run this fragment once and carry the `SESSION_TS` it prints:
+
+```bash
+# Carried forward: none
+printf 'carry: SESSION_TS=%s\n' "$(date -u +%Y-%m-%dT%H%M%S)"
+```
+
+This single value MUST be used for every artifact written during this session — do not recompute it later. Capturing the timestamp at invocation time is what makes re-runs sortable and keeps the requirements doc / decomposition output paired by prefix.
 
 **Even in `--continue` mode, always generate a fresh `SESSION_TS`.** Do not reuse the timestamp embedded in `CONTINUE_PATH` — that timestamp belongs to the source document, and reusing it would defeat the "never overwrite an existing file" invariant. The refined doc is a sibling, not a replacement.
 
 ### Step 3: Resolve the topic slug
 
-Source `lib/filename.sh` (it ships with the plugin) and resolve the slug depending on mode, running each command via `bash`:
+The fragment sources `lib/filename.sh` (it ships with the extension) and resolves the slug depending on mode:
 
 ```bash
-. <plugin-root>/lib/filename.sh
+# Carried forward: CONTINUE_PATH (empty in a fresh session), TOPIC (empty in --continue mode)
+: "${CONTINUE_PATH?stride-ideation: CONTINUE_PATH was not carried forward from Step 1}"
+: "${TOPIC?stride-ideation: TOPIC was not carried forward from Step 1}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+. "$STI_LIB/filename.sh" || exit 1
 
 if [ -n "$CONTINUE_PATH" ]; then
   # --continue mode: inherit slug from source path; never re-prompt.
-  SLUG="$(sti_slug_from_path "$CONTINUE_PATH" requirements)"
+  SLUG="$(sti_slug_from_path "$CONTINUE_PATH" requirements)" || exit 1
 else
   # Fresh session: slugify the user-supplied topic.
-  SLUG="$(sti_slugify "$TOPIC")"
+  SLUG="$(sti_slugify "$TOPIC")" || exit 1
 fi
+printf 'carry: SLUG=%s\n' "$SLUG"
 ```
 
-Where `<plugin-root>` is the resolved path to the installed `stride-ideation` extension. If either helper exits non-zero, surface the error verbatim and stop — do NOT silently pick a fallback slug.
+If either helper exits non-zero, surface the error verbatim and stop — do NOT silently pick a fallback slug.
 
-**Confirm `SLUG` with the user only in fresh-session mode.** In `--continue` mode the slug is inherited and locked — re-prompting would violate the "no re-prompt" acceptance criterion and risk accidentally diverging the artifact family. In fresh-session mode, ask the user to confirm, offering the computed value as the first option and "Type a different slug" as a fallback. Either way, the slug is locked for the rest of the session.
+**Confirm `SLUG` with the user only in fresh-session mode.** In `--continue` mode the slug is inherited and locked — re-prompting would violate the "no re-prompt" acceptance criterion and risk accidentally diverging the artifact family. In fresh-session mode, ask the user to confirm, offering the computed value as the first option and "Type a different slug" as a fallback. Either way, the slug is locked for the rest of the session: carry the confirmed `SLUG` (including one the user typed) into every later step.
 
 ### Step 4: Compute the target path (don't write yet)
 
-Call `sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md` via `bash`:
+The fragment calls `sti_unique_path docs/ideation <SESSION_TS> <SLUG> requirements md` and checks the invariant below in the same call:
 
 ```bash
-TARGET_PATH="$(sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md)"
-```
+# Carried forward: SESSION_TS, SLUG, CONTINUE_PATH (empty in a fresh session)
+: "${SESSION_TS:?stride-ideation: SESSION_TS was not carried forward from Step 2}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 3}"
+: "${CONTINUE_PATH?stride-ideation: CONTINUE_PATH was not carried forward from Step 1}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+. "$STI_LIB/filename.sh" || exit 1
 
-`TARGET_PATH` is the path you WILL write to in Step 8. Do NOT create or touch this file yet. Pre-creating it as empty would leave a half-baked artifact on the filesystem if the user interrupts mid-session, which is the explicit failure mode the spec is guarding against.
-
-**HARD INVARIANT — `--continue` mode:** `TARGET_PATH` MUST NOT equal `CONTINUE_PATH`. `sti_unique_path` builds the new path from a fresh `SESSION_TS`, so the two paths only collide if the user manually crafted a colliding name on disk in the same second — which the collision discriminator handles. Verify the invariant before continuing:
-
-```bash
+TARGET_PATH="$(sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md)" || exit 1
 if [ -n "$CONTINUE_PATH" ] && [ "$TARGET_PATH" = "$CONTINUE_PATH" ]; then
   echo "stride-ideation: refusing to overwrite source document at $CONTINUE_PATH" >&2
   exit 1
 fi
+printf 'carry: TARGET_PATH=%s\n' "$TARGET_PATH"
 ```
+
+`TARGET_PATH` is the path you WILL write to in Step 8. Do NOT create or touch this file yet. Pre-creating it as empty would leave a half-baked artifact on the filesystem if the user interrupts mid-session, which is the explicit failure mode the spec is guarding against.
+
+**HARD INVARIANT — `--continue` mode:** `TARGET_PATH` MUST NOT equal `CONTINUE_PATH`. `sti_unique_path` builds the new path from a fresh `SESSION_TS`, so the two paths only collide if the user manually crafted a colliding name on disk in the same second — which the collision discriminator handles. The Step 4 fragment verifies the invariant and stops before printing a `TARGET_PATH` if the two collide.
 
 ### Step 4b: Read the prior document (only in `--continue` mode)
 
@@ -97,18 +131,44 @@ If `INPUT_PATH` is set, **read-only** load its content via the `read` tool into 
 
 The requirements doc is not written until the hard gate passes (Step 8), so an interruption mid-session would otherwise lose every answer. To make a session recoverable, `/ideate` autosaves the in-progress draft to a **gitignored** scratch file under `.stride/` (see Step 5), and on start it offers to resume any unfinished draft for the **same slug**.
 
-Source the draft helper and look for an existing draft keyed by `SLUG` (resume keys on the slug, not `SESSION_TS`, because a fresh run has a new timestamp). Use `lib/draft.sh` on Unix shells, or its mirror `lib/draft.ps1` (`Sti-DraftFind`) on Windows:
+The fragment sources the draft helper and looks for an existing draft keyed by `SLUG` (resume keys on the slug, not `SESSION_TS`, because a fresh run has a new timestamp), and prints the fresh per-session scratch path alongside it. `lib/draft.ps1` (`Sti-DraftFind`, `Sti-DraftPath`) mirrors `lib/draft.sh` for PowerShell callers:
 
 ```bash
-. <plugin-root>/lib/draft.sh
+# Carried forward: SESSION_TS, SLUG
+: "${SESSION_TS:?stride-ideation: SESSION_TS was not carried forward from Step 2}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 3}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+. "$STI_LIB/draft.sh" || exit 1
 
 EXISTING_DRAFT="$(sti_draft_find .stride "$SLUG" 2>/dev/null || true)"
+FRESH_DRAFT_PATH="$(sti_draft_path .stride "$SESSION_TS" "$SLUG")" || exit 1
+printf 'carry: EXISTING_DRAFT=%s\n' "$EXISTING_DRAFT"
+printf 'carry: FRESH_DRAFT_PATH=%s\n' "$FRESH_DRAFT_PATH"
 ```
 
 `sti_draft_find` returns the latest **non-empty** scratch draft matching `<ts>-$SLUG-draft.md` under `.stride/`, or nothing when none exists (an empty or absent scratch yields no offer — a partial/corrupt draft safely falls back to a fresh session). Resolve `DRAFT_PATH` for this session:
 
-- **If `EXISTING_DRAFT` is non-empty**, ask the user via OpenCode's question UI (NOT Claude Code's `AskUserQuestion`) whether to **resume** that draft or **start fresh** (offer "Resume" as the first option). On resume, set `DRAFT_PATH="$EXISTING_DRAFT"` so the session continues autosaving to — and the skill loads from — that same file. On start-fresh, run `sti_draft_clear "$EXISTING_DRAFT"` to discard the abandoned draft, then set `DRAFT_PATH="$(sti_draft_path .stride "$SESSION_TS" "$SLUG")"`.
-- **If `EXISTING_DRAFT` is empty** (none found), set `DRAFT_PATH="$(sti_draft_path .stride "$SESSION_TS" "$SLUG")"` — a fresh per-session scratch path.
+- **If `EXISTING_DRAFT` is non-empty**, ask the user via OpenCode's question UI (NOT Claude Code's `AskUserQuestion`) whether to **resume** that draft or **start fresh** (offer "Resume" as the first option). On resume, carry `DRAFT_PATH` = the `EXISTING_DRAFT` value, so the session continues autosaving to — and the skill loads from — that same file. On start-fresh, run the fragment below to discard the abandoned draft, then carry `DRAFT_PATH` = the `FRESH_DRAFT_PATH` value.
+- **If `EXISTING_DRAFT` is empty** (none found), carry `DRAFT_PATH` = the `FRESH_DRAFT_PATH` value — a fresh per-session scratch path.
+
+```bash
+# Carried forward: EXISTING_DRAFT
+: "${EXISTING_DRAFT:?stride-ideation: EXISTING_DRAFT was not carried forward from Step 4d}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+. "$STI_LIB/draft.sh" || exit 1
+
+sti_draft_clear "$EXISTING_DRAFT" || exit 1
+```
 
 Only same-slug drafts are ever offered; a draft for a different in-flight topic is never surfaced here. The `.stride/` scratch directory is gitignored (see the project `.gitignore`) and the scratch file is **never** `git add`-ed or committed, and **never** holds the Stride API token or any other secret — it carries only the in-progress draft prose.
 
@@ -211,7 +271,27 @@ This `MVP / Validation experiment` section is profile-conditional — under `lea
 
 ### Step 7: Verify the target path is still untaken
 
-Re-run `sti_unique_path` with the same arguments as Step 4 and confirm the returned path equals `TARGET_PATH`. If it differs (another process wrote a colliding file during the session), use the new value — never overwrite an existing file. This is the HARD INVARIANT documented in `lib/filename.sh`.
+Re-run `sti_unique_path` with the same arguments as Step 4 and confirm the returned path equals `TARGET_PATH`. If it differs (another process wrote a colliding file during the session), use the new value — never overwrite an existing file. This is the HARD INVARIANT documented in `lib/filename.sh`. Carry the `TARGET_PATH` this fragment prints into Steps 8–10:
+
+```bash
+# Carried forward: SESSION_TS, SLUG, TARGET_PATH
+: "${SESSION_TS:?stride-ideation: SESSION_TS was not carried forward from Step 2}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 3}"
+: "${TARGET_PATH:?stride-ideation: TARGET_PATH was not carried forward from Step 4}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+. "$STI_LIB/filename.sh" || exit 1
+
+RECHECKED_PATH="$(sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md)" || exit 1
+if [ "$RECHECKED_PATH" != "$TARGET_PATH" ]; then
+  echo "stride-ideation: $TARGET_PATH was taken during the session; writing to $RECHECKED_PATH instead" >&2
+fi
+printf 'carry: TARGET_PATH=%s\n' "$RECHECKED_PATH"
+```
 
 ### Step 8: Write the file
 
@@ -220,11 +300,24 @@ Use the `write` tool to write `DRAFT_DOC` to the resolved target path. The direc
 ### Step 9: Commit
 
 ```bash
-git add "$TARGET_PATH"
+# Carried forward: TARGET_PATH, SLUG, CONTINUE_PATH (empty in a fresh session), DRAFT_PATH
+: "${TARGET_PATH:?stride-ideation: TARGET_PATH was not carried forward from Step 7}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 3}"
+: "${CONTINUE_PATH?stride-ideation: CONTINUE_PATH was not carried forward from Step 1}"
+: "${DRAFT_PATH:?stride-ideation: DRAFT_PATH was not carried forward from Step 4d}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+. "$STI_LIB/draft.sh" || exit 1
+
+git add "$TARGET_PATH" || exit 1
 if [ -n "$CONTINUE_PATH" ]; then
-  git commit -m "stride-ideation: refine requirements for $SLUG"
+  git commit -m "stride-ideation: refine requirements for $SLUG" || exit 1
 else
-  git commit -m "stride-ideation: requirements for $SLUG"
+  git commit -m "stride-ideation: requirements for $SLUG" || exit 1
 fi
 
 # The session succeeded — the committed doc supersedes the scratch draft.

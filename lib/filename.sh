@@ -184,6 +184,44 @@ sti_resolve_goal() {
   return 3
 }
 
+sti_goal_fields() {
+  # Split a sti_resolve_goal tuple ("<index>\t<name>\t<slug>") into three
+  # KEY=value lines, in this order:
+  #
+  #   GOAL_INDEX=<index>
+  #   GOAL_NAME=<name>
+  #   GOAL_SLUG=<slug>
+  #
+  # It exists so commands/stridify.md needs no awk positional-field
+  # references: OpenCode's command expansion replaces every dollar sign
+  # followed by a digit in a command template with the user's arguments,
+  # which silently rewrote those references.
+  #
+  # Usage: sti_goal_fields <tuple>
+  #
+  # Exit codes:
+  #   0  three lines on stdout
+  #   1  bad usage — empty, not exactly three tab-separated fields, a
+  #      non-numeric index, or an empty name or slug
+  local tuple="${1:-}"
+  local tab idx name slug rest
+  tab="$(printf '\t')"
+  case "$tuple" in
+    *"$tab"*"$tab"*"$tab"*|"") echo "sti_goal_fields: usage: sti_goal_fields <index<TAB>name<TAB>slug>" >&2; return 1 ;;
+    *"$tab"*"$tab"*) ;;
+    *) echo "sti_goal_fields: usage: sti_goal_fields <index<TAB>name<TAB>slug>" >&2; return 1 ;;
+  esac
+  idx="${tuple%%"$tab"*}"
+  rest="${tuple#*"$tab"}"
+  name="${rest%%"$tab"*}"
+  slug="${rest#*"$tab"}"
+  if ! printf '%s' "$idx" | grep -qE '^[0-9]+$' || [ -z "$name" ] || [ -z "$slug" ]; then
+    echo "sti_goal_fields: usage: sti_goal_fields <index<TAB>name<TAB>slug>" >&2
+    return 1
+  fi
+  printf 'GOAL_INDEX=%s\nGOAL_NAME=%s\nGOAL_SLUG=%s\n' "$idx" "$name" "$slug"
+}
+
 sti_scope_doc_to_seam() {
   # Rewrite a requirements doc to scope its "## Decomposition seams" section
   # to one surface. Emits the doc text on stdout with the section body

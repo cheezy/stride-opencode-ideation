@@ -187,6 +187,35 @@ function Sti-ResolveGoal {
     $global:LASTEXITCODE = 3
 }
 
+function Sti-GoalFields {
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)] [string]$Tuple
+    )
+    # Split a Sti-ResolveGoal tuple ("<index>`t<name>`t<slug>") into three
+    # KEY=value strings, in order: GOAL_INDEX=, GOAL_NAME=, GOAL_SLUG=.
+    # Mirrors sti_goal_fields in filename.sh, which exists so the command
+    # templates need no positional-field references that OpenCode's command
+    # expansion would rewrite.
+    #
+    # Exit codes (via $LASTEXITCODE):
+    #   0  three strings on the output stream
+    #   1  bad usage — empty, not exactly three tab-separated fields, a
+    #      non-numeric index, or an empty name or slug
+    $parts = @()
+    if (-not [string]::IsNullOrEmpty($Tuple)) { $parts = @($Tuple -split "`t") }
+    if (($parts.Count -ne 3) -or ($parts[0] -notmatch '^[0-9]+$') -or
+        [string]::IsNullOrEmpty($parts[1]) -or [string]::IsNullOrEmpty($parts[2])) {
+        Write-Error "Sti-GoalFields: usage: Sti-GoalFields <index<TAB>name<TAB>slug>"
+        $global:LASTEXITCODE = 1
+        return
+    }
+    Write-Output ("GOAL_INDEX=" + $parts[0])
+    Write-Output ("GOAL_NAME=" + $parts[1])
+    Write-Output ("GOAL_SLUG=" + $parts[2])
+    $global:LASTEXITCODE = 0
+}
+
 function Sti-ScopeDocToSeam {
     [CmdletBinding()]
     param(

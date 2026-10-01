@@ -157,6 +157,27 @@ if ([string]::IsNullOrEmpty($badOut)) {
     Fail "slug_from_path: malformed path leaked output: $badOut"
 }
 
+# --- goal_fields -----------------------------------------------------------
+
+Assert-Equal 'goal_fields: splits a resolved seam into index, name and slug' `
+    "GOAL_INDEX=2|GOAL_NAME=Kanban app|GOAL_SLUG=kanban-app" `
+    ((Sti-GoalFields "2`tKanban app`tkanban-app") -join '|')
+Assert-Equal 'goal_fields: a name with spaces, dashes and an equals sign is kept whole' `
+    'GOAL_NAME=A - B = C' `
+    (@(Sti-GoalFields "10`tA - B = C`ta-b-c")[1])
+foreach ($bad in @('', '2', "2`tname", "x`tname`tslug", "2`t`tslug", "2`tname`t", "2`ta`tb`tc")) {
+    $badOut = Sti-GoalFields $bad -ErrorAction SilentlyContinue
+    if (($LASTEXITCODE -eq 1) -and -not $badOut) { Pass 'goal_fields: rejects a malformed tuple with no output' }
+    else { Fail "goal_fields: accepted a malformed tuple: [$bad]" "rc=$LASTEXITCODE out=$badOut" }
+}
+$doc = [System.IO.Path]::GetTempFileName()
+Set-Content -LiteralPath $doc -Value "# T`n`n## Decomposition seams`n`n1. **Kanban app** - owns it`n2. **stride plugin** - adapter"
+$tuple = Sti-ResolveGoal -Path $doc -GoalArg 'stride plugin'
+Assert-Equal 'goal_fields: chains from Sti-ResolveGoal by name' `
+    'GOAL_INDEX=2|GOAL_NAME=stride plugin|GOAL_SLUG=stride-plugin' `
+    ((Sti-GoalFields $tuple) -join '|')
+Remove-Item -LiteralPath $doc -Force
+
 # --- summary ---------------------------------------------------------------
 
 Write-Host ''

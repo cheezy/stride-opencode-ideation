@@ -10,7 +10,14 @@ Read a stride-ideation requirements markdown document, decompose it into a Strid
 
 The user's invocation arguments are available as `$ARGUMENTS`. Parse the requirements-doc path and the optional `--goal <name|index>` flag out of `$ARGUMENTS` per Step 1. The protocol contract for decomposition lives in the `stride-ideation` skill and the requirements-decomposer custom agent — this command defers to them and never reimplements the decomposition methodology.
 
-When you need to run shell, execute it with `bash`, one command at a time, checking the result before proceeding.
+### Running the bash fragments
+
+**Every bash call is a fresh shell.** OpenCode's `bash` tool starts a new process for each call, so variables, sourced functions and the result of an earlier fragment do not survive into the next call. Each fragment below is self-contained: it finds and sources the helper it needs itself and starts from the values you hand it. Run each fragment as one `bash` call and check its result before going on.
+
+- **Helper paths.** A fragment that needs a helper finds the installed `lib/` itself, in this order: the project install (`.opencode/stride-ideation/lib` at the git toplevel), the global install (`~/.config/opencode/stride-ideation/lib`), and — only when the project *is* a `stride-opencode-ideation` checkout, with the same marker files the installer checks (`commands/stridify.md`, `commands/ideate.md`, `install.sh`, `AGENTS.md`, `skills/`) — that checkout's `lib/`. A project install is trusted ahead of the global one, the same way OpenCode trusts a project's own `.opencode/` commands: in a repository you do not trust, check its `.opencode/` before running these commands there. It never takes a helper path from an argument, a carried value or an environment variable. If a fragment stops with `cannot find the stride-ideation helpers`, stop the session and tell the user to run the installer; never guess a path.
+- **Carry values forward as literals.** A fragment's first comment line, `# Carried forward: ...`, names the values it needs from earlier steps. Prepend one single-quoted assignment per name to the same `bash` call, e.g. `SLUG='dark-mode-toggle'`. Write a single quote inside a value as `'\''` (so `Bob's idea` becomes `TOPIC='Bob'\''s idea'`), write an empty value as `NAME=''`, and never paste a value unquoted. The fragment checks each one and stops with `... was not carried forward` if you missed one; fix the prefix and re-run that step.
+- **Values a fragment produces** are printed as `carry: NAME=value` lines. Carry them into later steps exactly as printed.
+- **No dollar-sign-plus-digit sequences.** OpenCode replaces each one in this file with the matching invocation argument before you read it, so the fragments use `cut`, `read` and helper functions instead of positional fields. Keep it that way when editing this file.
 
 ## What to do
 
@@ -21,7 +28,7 @@ Follow these steps in order. Do NOT skip steps.
 The user invoked you with `$ARGUMENTS`. Parse in this fixed order — `--goal` first, then `--yes` / `--auto-approve`, then the trimmed remainder is `REQUIREMENTS_PATH`:
 
 - If `--goal` appears, set `GOAL_ARG` to the value of the **next** token and remove both tokens — or, if the `--goal=<value>` form is used, set `GOAL_ARG` to the post-`=` portion (split on the FIRST `=` only, so a value containing `=` is preserved verbatim) and remove the single token. Accept both shapes — `--goal <value>` and `--goal=<value>` — matching how `/ideate` handles `--continue` and `--profile`. Do NOT validate `GOAL_ARG` here; resolution against the doc's `## Decomposition seams` section happens in new Step 2b, after the doc has been read and the seven-section gate has passed.
-- If `--goal` is absent, leave `GOAL_ARG` and `GOAL_SLUG` unset. The command runs in its historical "all goals" mode.
+- If `--goal` is absent, `GOAL_ARG` and `GOAL_SLUG` are empty: carry them as `GOAL_ARG=''` and `GOAL_SLUG=''` into every step whose fragment names them. The command runs in its historical "all goals" mode.
 - If `--yes` **or** `--auto-approve` appears as a bare token, set `AUTO_APPROVE=true` and remove that token. This is a **boolean flag — it takes no value**, so there is no `--yes=<value>` form; treat any token equal to `--yes` or `--auto-approve` as the switch and consume it. The flag bypasses the Step 8.5 preview-and-approval gate, preserving the historical fire-and-forget behavior for scripted / non-interactive callers. If neither token appears, leave `AUTO_APPROVE` unset (equivalently `false`); the command runs interactively and Step 8.5 prompts for approval before the POST. The bypass MUST be an explicit user-supplied flag — never infer it; tasks must never be shipped unreviewed by accident.
 - After flag tokens are consumed, trim the remainder and set `REQUIREMENTS_PATH`. If the remainder is empty, print *"Usage: `/stridify <path-to-requirements.md> [--goal <name|index>] [--yes]`"* and exit non-zero.
 
@@ -52,6 +59,9 @@ Before doing any expensive work, the command must confirm the input is a real, p
    Count each shape independently, then take the **MAX** across the three. The max-of-shapes rule is friendlier than sum-of-shapes when a section mixes a primary numbered list of surfaces with a secondary bulleted list of cross-cutting notes (e.g., "Shared contract" bullets, "Sequencing & dependencies" bullets) — those secondary bullets should not inflate the surface count.
 
    ```bash
+   # Carried forward: REQUIREMENTS_PATH, GOAL_ARG (empty without --goal)
+   : "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+   : "${GOAL_ARG?stride-ideation: GOAL_ARG was not carried forward from Step 1}"
    if [ -z "${GOAL_ARG:-}" ] && grep -qE '^## Decomposition seams[[:space:]]*$' "$REQUIREMENTS_PATH"; then
      SEAM_COUNT="$(awk '
        /^## Decomposition seams[[:space:]]*$/ { in_section=1; next }
@@ -77,41 +87,49 @@ Before doing any expensive work, the command must confirm the input is a real, p
 
 ### Step 2b: Resolve `--goal` against `## Decomposition seams` (only if `--goal` was set)
 
-This step runs **only when `GOAL_ARG` is set** (i.e., the user invoked with `--goal <value>`). If `GOAL_ARG` is empty, skip the entire step — the command stays in "all goals" mode and `GOAL_SLUG` remains unset.
+This step runs **only when `GOAL_ARG` is set** (i.e., the user invoked with `--goal <value>`). If `GOAL_ARG` is empty, skip the entire step — the command stays in "all goals" mode and `GOAL_SLUG` stays empty (carry it as `GOAL_SLUG=''`).
 
-The resolver is `sti_resolve_goal` in `lib/filename.sh`. It takes the requirements doc path and the `GOAL_ARG` string and emits `<index>\t<name>\t<slug>` on success. Source `filename.sh` (it is also sourced by Step 4 — sourcing twice is harmless):
+The resolver is `sti_resolve_goal` in `lib/filename.sh`. It takes the requirements doc path and the `GOAL_ARG` string and emits `<index>\t<name>\t<slug>` on success; `sti_goal_fields` splits that into the `GOAL_INDEX`, `GOAL_NAME` and `GOAL_SLUG` values the fragment prints as `carry:` lines. Carry all three into Steps 5, 7 and 8:
 
 ```bash
-. <plugin-root>/lib/filename.sh
+# Carried forward: REQUIREMENTS_PATH, GOAL_ARG
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+: "${GOAL_ARG:?stride-ideation: GOAL_ARG was not carried forward from Step 1}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+. "$STI_LIB/filename.sh" || exit 1
 
-if [ -n "${GOAL_ARG:-}" ]; then
-  GOAL_RESOLVED="$(sti_resolve_goal "$REQUIREMENTS_PATH" "$GOAL_ARG")"
-  GOAL_RC=$?
-  case "$GOAL_RC" in
-    0)
-      GOAL_INDEX="$(printf '%s' "$GOAL_RESOLVED" | awk -F'\t' '{print $1}')"
-      GOAL_NAME="$(printf '%s' "$GOAL_RESOLVED" | awk -F'\t' '{print $2}')"
-      GOAL_SLUG="$(printf '%s' "$GOAL_RESOLVED" | awk -F'\t' '{print $3}')"
-      ;;
-    2)
-      echo "stride-ideation: no Decomposition seams section in $REQUIREMENTS_PATH — cannot scope to single goal" >&2
-      exit 1
-      ;;
-    4)
-      echo "stride-ideation: Decomposition seams section in $REQUIREMENTS_PATH is empty — cannot scope to single goal" >&2
-      exit 1
-      ;;
-    3)
-      echo "stride-ideation: --goal value '$GOAL_ARG' did not match any Decomposition seam in $REQUIREMENTS_PATH. Available seams:" >&2
-      sti_extract_seams "$REQUIREMENTS_PATH" | awk -F'\t' '{ printf "  %d. %s (slug: %s)\n", $1, $2, $3 }' >&2
-      exit 1
-      ;;
-    *)
-      echo "stride-ideation: --goal resolution failed (rc=$GOAL_RC) on $REQUIREMENTS_PATH" >&2
-      exit 1
-      ;;
-  esac
-fi
+GOAL_RESOLVED="$(sti_resolve_goal "$REQUIREMENTS_PATH" "$GOAL_ARG")"
+GOAL_RC=$?
+case "$GOAL_RC" in
+  0)
+    GOAL_FIELDS="$(sti_goal_fields "$GOAL_RESOLVED")" || exit 1
+    printf '%s\n' "$GOAL_FIELDS" | sed 's/^/carry: /'
+    ;;
+  2)
+    echo "stride-ideation: no Decomposition seams section in $REQUIREMENTS_PATH — cannot scope to single goal" >&2
+    exit 1
+    ;;
+  4)
+    echo "stride-ideation: Decomposition seams section in $REQUIREMENTS_PATH is empty — cannot scope to single goal" >&2
+    exit 1
+    ;;
+  3)
+    echo "stride-ideation: --goal value '$GOAL_ARG' did not match any Decomposition seam in $REQUIREMENTS_PATH. Available seams:" >&2
+    sti_extract_seams "$REQUIREMENTS_PATH" | while IFS="$(printf '\t')" read -r SEAM_IDX SEAM_NAME SEAM_SLUG; do
+      printf '  %d. %s (slug: %s)\n' "$SEAM_IDX" "$SEAM_NAME" "$SEAM_SLUG"
+    done >&2
+    exit 1
+    ;;
+  *)
+    echo "stride-ideation: --goal resolution failed (rc=$GOAL_RC) on $REQUIREMENTS_PATH" >&2
+    exit 1
+    ;;
+esac
 ```
 
 **Resolution rules** (implemented by `sti_resolve_goal`):
@@ -131,7 +149,14 @@ fi
 Read auth BEFORE the expensive subagent dispatch so a misconfigured `.stride_auth.md` fails fast without first burning a decomposer pass and writing a batch JSON that can't be shipped. Run the ship script's preflight mode:
 
 ```bash
-bash "<plugin-root>/lib/ship.sh" --check-auth || exit 1
+# Carried forward: none
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+bash "$STI_LIB/ship.sh" --check-auth || exit 1
 ```
 
 `--check-auth` locates `.stride_auth.md` — `$STRIDE_AUTH_FILE` if set, else the file at the git toplevel of the working directory (so a run from a subdirectory of the project still finds it), else the one in the current directory — reads it through `lib/read_auth.py`, prints one `stride-ideation: auth file OK` line naming the file and the API URL, and POSTs nothing. It checks that the file parses, not that the server accepts the token — a revoked token surfaces as a 401 in Step 9. On failure it exits non-zero after `lib/read_auth.py`'s own stderr, which is engineered to never contain the token value — surface that verbatim and stop.
@@ -144,13 +169,23 @@ bash "<plugin-root>/lib/ship.sh" --check-auth || exit 1
 
 ### Step 4: Inherit the session timestamp and slug
 
-Source `lib/filename.sh` and extract the inherited values from `REQUIREMENTS_PATH`, running each command via `bash`:
+The fragment sources `lib/filename.sh` and extracts the inherited values from `REQUIREMENTS_PATH`:
 
 ```bash
-. <plugin-root>/lib/filename.sh
+# Carried forward: REQUIREMENTS_PATH
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+. "$STI_LIB/filename.sh" || exit 1
 
 SOURCE_TS="$(basename "$REQUIREMENTS_PATH" | sed -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6})-.*$/\1/')"
-SLUG="$(sti_slug_from_path "$REQUIREMENTS_PATH" requirements)"
+SLUG="$(sti_slug_from_path "$REQUIREMENTS_PATH" requirements)" || exit 1
+printf 'carry: SOURCE_TS=%s\n' "$SOURCE_TS"
+printf 'carry: SLUG=%s\n' "$SLUG"
 ```
 
 `SOURCE_TS` is **inherited** from the source path so the decomposition JSON pairs cleanly with its requirements doc by filename prefix. Do NOT generate a fresh timestamp — the design spec explicitly couples the two artifacts by shared prefix.
@@ -162,11 +197,26 @@ If `sti_slug_from_path` exits non-zero (the path does not match the `YYYY-MM-DDT
 Use `sti_unique_path` to compute the sibling output path. When `--goal` was set, append the goal slug to the doc slug so per-goal batches sit next to each other without collision:
 
 ```bash
+# Carried forward: REQUIREMENTS_PATH, SOURCE_TS, SLUG, GOAL_SLUG (empty without --goal)
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+: "${SOURCE_TS:?stride-ideation: SOURCE_TS was not carried forward from Step 4}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 4}"
+: "${GOAL_SLUG?stride-ideation: GOAL_SLUG was not carried forward from Step 2b}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+. "$STI_LIB/filename.sh" || exit 1
+
 SLUG_FOR_PATH="$SLUG"
-if [ -n "${GOAL_SLUG:-}" ]; then
+if [ -n "$GOAL_SLUG" ]; then
   SLUG_FOR_PATH="${SLUG}-${GOAL_SLUG}"
 fi
-TARGET_PATH="$(sti_unique_path "$(dirname "$REQUIREMENTS_PATH")" "$SOURCE_TS" "$SLUG_FOR_PATH" stride-batch json)"
+TARGET_PATH="$(sti_unique_path "$(dirname "$REQUIREMENTS_PATH")" "$SOURCE_TS" "$SLUG_FOR_PATH" stride-batch json)" || exit 1
+printf 'carry: SLUG_FOR_PATH=%s\n' "$SLUG_FOR_PATH"
+printf 'carry: TARGET_PATH=%s\n' "$TARGET_PATH"
 ```
 
 `stride-batch` is the artifact name (not `requirements`), so the helper produces a sibling file like `2026-05-12T103000-add-notifications-stride-batch.json` next to the requirements doc. When `--goal` is set, the goal slug is appended between the doc slug and the `-stride-batch` token, producing e.g. `2026-05-15T210800-review-queue-code-diffs-kanban-app-stride-batch.json`.
@@ -180,14 +230,19 @@ Do NOT create or touch `TARGET_PATH` yet. A pre-created empty file would leave a
 Compute the SHA-256 of the requirements doc and capture it for the orchestrator-injected fields:
 
 ```bash
-SOURCE_SHA="$(shasum -a 256 "$REQUIREMENTS_PATH" | awk '{print $1}' | tr 'A-Z' 'a-z')"
+# Carried forward: REQUIREMENTS_PATH
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+SOURCE_SHA="$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$REQUIREMENTS_PATH")" || exit 1
+printf 'carry: SOURCE_SHA=%s\n' "$SOURCE_SHA"
 ```
 
-If `shasum` is unavailable on the host (rare on macOS / Linux), fall back to `sha256sum "$REQUIREMENTS_PATH" | awk '{print $1}' | tr 'A-Z' 'a-z'`. The resulting hex string MUST be **lowercase** so the on-disk audit field is a stable, canonical value.
+`python3` is already required by the path normalization below and by the Step 8 validator, so there is no `shasum` / `sha256sum` variant to fall back to. `hexdigest()` is always **lowercase**, so the on-disk audit field is a stable, canonical value.
 
 **Normalize `REQUIREMENTS_PATH` to a stable form** so the stamped `source_spec` value is consistent across invocations from different working directories. Two acceptable forms:
 
 ```bash
+# Carried forward: REQUIREMENTS_PATH
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
 # Preferred: relative to the git repo root.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 SOURCE_SPEC="$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$REQUIREMENTS_PATH" "$REPO_ROOT")"
@@ -196,6 +251,7 @@ SOURCE_SPEC="$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys
 if [ -z "$SOURCE_SPEC" ] || [ "$SOURCE_SPEC" = ".." ] || [[ "$SOURCE_SPEC" == ../* ]]; then
   SOURCE_SPEC="$(cd "$(dirname "$REQUIREMENTS_PATH")" && pwd)/$(basename "$REQUIREMENTS_PATH")"
 fi
+printf 'carry: SOURCE_SPEC=%s\n' "$SOURCE_SPEC"
 ```
 
 Do NOT use the raw `$REQUIREMENTS_PATH` as `SOURCE_SPEC` — it depends on the user's current working directory at invocation time and would make the on-disk audit field brittle for tools that read the JSON later.
@@ -281,8 +337,21 @@ When `GOAL_SLUG` is set, build a scoped prompt in two layers:
 1. **Doc surgery.** Use `sti_scope_doc_to_seam` from `lib/filename.sh` to produce a copy of the doc with its `## Decomposition seams` section pruned to keep only the matched seam item. Everything OUTSIDE the seams section (the seven gated sections — Problem, Goal, Outcome, Assumptions, Constraints, Non-goals, Success metrics — plus any Sketch or Open questions content) is preserved verbatim, so the subagent retains the full shared context. Inside the section, intro and trailing prose are dropped and replaced with a one-line notice — only the matched numbered item's lines (start line + any continuation lines until the next item or the section's end) remain.
 
    ```bash
-   SCOPED_DOC="$(sti_scope_doc_to_seam "$REQUIREMENTS_PATH" "$GOAL_INDEX")"
+   # Carried forward: REQUIREMENTS_PATH, GOAL_INDEX
+   : "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+   : "${GOAL_INDEX:?stride-ideation: GOAL_INDEX was not carried forward from Step 2b}"
+   # Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+   STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+   if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+   elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+   elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+   else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+   . "$STI_LIB/filename.sh" || exit 1
+
+   sti_scope_doc_to_seam "$REQUIREMENTS_PATH" "$GOAL_INDEX" || exit 1
    ```
+
+   Its stdout is `SCOPED_DOC`. It goes into the dispatch prompt only — never paste it back into a `bash` call.
 
 2. **Prompt directive.** Prepend a one-line directive above the `Requirements document:` fence telling the subagent the target surface verbatim, so a contract regression in the subagent (it ignores the scoped section and emits all seams it can infer) is at least called out explicitly:
 
@@ -301,10 +370,26 @@ Reached **only** when the Step 7c retry loop hits `MAX_ATTEMPTS` with three cons
 **(7.5a) Compute the saved-prompt sibling path.** Use `sti_unique_path` with artifact `decomposer-prompt` and extension `md`. Reuse the same `SLUG_FOR_PATH` computation from Step 5 so per-goal exhaustions land with the goal slug in the filename (e.g., `2026-05-15T210800-review-queue-code-diffs-kanban-app-decomposer-prompt.md`). The collision discriminator is identical to Step 5 — reruns that also exhaust produce `-2`, `-3`, … siblings; existing files are never overwritten.
 
 ```bash
-PROMPT_PATH="$(sti_unique_path "$(dirname "$REQUIREMENTS_PATH")" "$SOURCE_TS" "$SLUG_FOR_PATH" decomposer-prompt md)"
+# Carried forward: REQUIREMENTS_PATH, SOURCE_TS, SLUG_FOR_PATH
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+: "${SOURCE_TS:?stride-ideation: SOURCE_TS was not carried forward from Step 4}"
+: "${SLUG_FOR_PATH:?stride-ideation: SLUG_FOR_PATH was not carried forward from Step 5}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+. "$STI_LIB/filename.sh" || exit 1
+
+PROMPT_PATH="$(sti_unique_path "$(dirname "$REQUIREMENTS_PATH")" "$SOURCE_TS" "$SLUG_FOR_PATH" decomposer-prompt md)" || exit 1
+printf 'carry: PROMPT_PATH=%s\n' "$PROMPT_PATH"
+printf 'carry: STI_LIB=%s\n' "$(cd "$STI_LIB" && pwd -P)"
 ```
 
-**(7.5b) Compose the file body.** Write a markdown document with these sections, in this order. The structure is fixed so a downstream reader (human, future tool) can parse it:
+The `STI_LIB` value is the absolute helper directory; the saved file's recovery instructions name it so they work from any directory.
+
+**(7.5b) Compose the file body.** Write a markdown document with these sections, in this order. The structure is fixed so a downstream reader (human, future tool) can parse it. Fill `<STI_LIB>` with the absolute value Step 7.5a printed:
 
 ```markdown
 # Decomposer Prompt — Saved After Retry Exhaustion
@@ -332,17 +417,21 @@ resulting fenced ```json block as `<BATCH_TARGET_PATH>` (the target path
 computed by Step 5; for the run that produced this file, that path was
 `<TARGET_PATH>`). Then run:
 
-    python3 <plugin-root>/lib/validate_batch.py <BATCH_TARGET_PATH>
+    python3 <STI_LIB>/validate_batch.py <BATCH_TARGET_PATH>
 
 to confirm the JSON parses against the validator's five named checks
 (parse_error / wrong_root_key / empty_goals / goal_missing_field /
 bad_dependency_index). On success, ship it exactly as Step 9 of
 `commands/stridify.md` does:
 
-    bash <plugin-root>/lib/ship.sh <BATCH_TARGET_PATH>
+    bash <STI_LIB>/ship.sh <BATCH_TARGET_PATH>
 
 which reads `.stride_auth.md`, strips the audit fields, POSTs the batch and
 renders the created identifiers in one process — never a hand-written curl.
+`<STI_LIB>` was the helper directory when this file was saved; if the
+extension has been reinstalled or moved since, use
+`.opencode/stride-ideation/lib` (project install) or
+`~/.config/opencode/stride-ideation/lib` (global install) instead.
 
 This sibling file contains NO authentication material. The Stride API token
 never enters the decomposer prompt (the subagent has no API access), so there
@@ -361,8 +450,8 @@ Last error from the final attempt:
 
 To recover: paste the prompt block from that file into a fresh
 session; save the JSON response as <TARGET_PATH>; then run
-`python3 lib/validate_batch.py <TARGET_PATH>` and
-`bash lib/ship.sh <TARGET_PATH>` (Step 9 of commands/stridify.md).
+`python3 <STI_LIB>/validate_batch.py <TARGET_PATH>` and
+`bash <STI_LIB>/ship.sh <TARGET_PATH>` (Step 9 of commands/stridify.md).
 
 The Stride API POST was NOT attempted.
 ```
@@ -380,18 +469,17 @@ Then `exit 1`. **No Stride API POST runs in this branch.**
 
 Four sub-steps that together produce the on-disk audit artifact.
 
-**(8a) Validate the subagent output.** Write the extracted JSON to a temporary file and run the structural validator at `lib/validate_batch.py`. The validator owns the canonical implementation of every check; the command body delegates and surfaces the validator's stderr verbatim on failure:
+**(8a) Validate the subagent output.** First use the `write` tool to write the JSON extracted in Step 7d, verbatim, to `.stride/stridify-subagent-output.json` (the scratch directory `/ideate` also uses; the file is overwritten on every run and never committed). The subagent's output is untrusted, so it never goes into a `bash` call itself — no heredoc, no `printf`, no variable. Then run the structural validator at `lib/validate_batch.py` on that file. The validator owns the canonical implementation of every check; the command body delegates and surfaces the validator's stderr verbatim on failure:
 
 ```bash
-TMP_JSON="$(mktemp -t stride_stridify_validate.XXXXXX.json)"
-printf '%s' "$RAW_SUBAGENT_JSON" > "$TMP_JSON"
-
-if ! python3 "<plugin-root>/lib/validate_batch.py" "$TMP_JSON" 2>"$TMP_JSON.err"; then
-  cat "$TMP_JSON.err" >&2
-  rm -f "$TMP_JSON" "$TMP_JSON.err"
-  exit 1
-fi
-rm -f "$TMP_JSON.err"
+# Carried forward: none (the JSON is in the scratch file written just before this call)
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+python3 "$STI_LIB/validate_batch.py" .stride/stridify-subagent-output.json || exit 1
 ```
 
 The validator enforces five named checks, in order:
@@ -429,23 +517,47 @@ Use the **normalized** `SOURCE_SPEC` from Step 6 (relative to repo root, or abso
 
 This is the ONLY mutation made to the subagent's output — every other field (per-goal title, tasks, pitfalls, etc.) is preserved verbatim. The three audit fields are stripped from the API payload in Step 9; they remain on disk as the audit trail that pairs this batch JSON with its source requirements doc.
 
-**(8c) Verify path uniqueness and write the file.** Re-run `sti_unique_path` with the same arguments as Step 5 to confirm `TARGET_PATH` is still untaken. If a colliding file appeared between Step 5 and now (concurrent process, manual filesystem action), use the freshly resolved path — never overwrite an existing file.
+**(8c) Verify path uniqueness and write the file.** Re-run `sti_unique_path` with the same arguments as Step 5 to confirm `TARGET_PATH` is still untaken. If a colliding file appeared between Step 5 and now (concurrent process, manual filesystem action), use the freshly resolved path — never overwrite an existing file. Carry the `TARGET_PATH` this fragment prints into the write and Step 8d:
+
+```bash
+# Carried forward: REQUIREMENTS_PATH, SOURCE_TS, SLUG_FOR_PATH, TARGET_PATH
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+: "${SOURCE_TS:?stride-ideation: SOURCE_TS was not carried forward from Step 4}"
+: "${SLUG_FOR_PATH:?stride-ideation: SLUG_FOR_PATH was not carried forward from Step 5}"
+: "${TARGET_PATH:?stride-ideation: TARGET_PATH was not carried forward from Step 5}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+. "$STI_LIB/filename.sh" || exit 1
+
+RECHECKED_PATH="$(sti_unique_path "$(dirname "$REQUIREMENTS_PATH")" "$SOURCE_TS" "$SLUG_FOR_PATH" stride-batch json)" || exit 1
+if [ "$RECHECKED_PATH" != "$TARGET_PATH" ]; then
+  echo "stride-ideation: $TARGET_PATH was taken since Step 5; writing to $RECHECKED_PATH instead" >&2
+fi
+printf 'carry: TARGET_PATH=%s\n' "$RECHECKED_PATH"
+```
 
 Use the `write` tool to write the JSON document to the resolved target path. The directory containing `REQUIREMENTS_PATH` already exists (it housed the source doc), so no `mkdir -p` is needed.
 
 **(8d) Commit.**
 
 ```bash
-git add "$TARGET_PATH"
-if [ -n "${GOAL_SLUG:-}" ]; then
-  git commit -m "stride-ideation: decomposition for $SLUG goal $GOAL_SLUG"
+# Carried forward: TARGET_PATH, SLUG, GOAL_SLUG (empty without --goal)
+: "${TARGET_PATH:?stride-ideation: TARGET_PATH was not carried forward from Step 8c}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 4}"
+: "${GOAL_SLUG?stride-ideation: GOAL_SLUG was not carried forward from Step 2b}"
+git add "$TARGET_PATH" || exit 1
+if [ -n "$GOAL_SLUG" ]; then
+  git commit -m "stride-ideation: decomposition for $SLUG goal $GOAL_SLUG" || exit 1
 else
-  git commit -m "stride-ideation: decomposition for $SLUG"
+  git commit -m "stride-ideation: decomposition for $SLUG" || exit 1
 fi
 
-# Alias for the ship-side steps below — keeps the variable name consistent
-# with the historical /ship command body.
-BATCH_PATH="$TARGET_PATH"
+# BATCH_PATH is the name the ship-side steps below use for the same file.
+printf 'carry: BATCH_PATH=%s\n' "$TARGET_PATH"
 ```
 
 When `--goal` was set, the commit message gains the goal slug so the audit trail records WHICH surface this batch covers — important when multiple per-goal commits ride on the same source requirements doc (their `source_spec_sha256` values match, but their commit subjects disambiguate).
@@ -461,6 +573,8 @@ The batch JSON is on disk and committed, but nothing has been sent to Stride yet
 **(8.5a) Render the tree from the on-disk batch JSON.** Read `$BATCH_PATH` (never `.stride_auth.md`) and print each goal title, its task count, its task titles, and the cross-goal claim order from `decomposition_notes`. The render reads only the on-disk JSON, which contains no auth material — do NOT enrich it from the auth file or any other secret, and never print the token. Reuse the Step 10 identifier-render style, adapted to the pre-POST on-disk shape (no identifiers exist yet — the Stride API assigns G/W identifiers on POST):
 
 ```bash
+# Carried forward: BATCH_PATH
+: "${BATCH_PATH:?stride-ideation: BATCH_PATH was not carried forward from Step 8d}"
 python3 - "$BATCH_PATH" <<'PY'
 import json
 import sys
@@ -496,8 +610,16 @@ PY
 On **decline**, stop cleanly:
 
 ```bash
+# Carried forward: BATCH_PATH
+: "${BATCH_PATH:?stride-ideation: BATCH_PATH was not carried forward from Step 8d}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
 echo "stride-ideation: declined. The batch JSON is on disk at $BATCH_PATH" >&2
-echo "(committed in git). Ship it later, unchanged, with: bash <plugin-root>/lib/ship.sh \"$BATCH_PATH\"" >&2
+echo "(committed in git). Ship it later, unchanged, with: bash $STI_LIB/ship.sh \"$BATCH_PATH\"" >&2
 exit 0
 ```
 
@@ -508,10 +630,18 @@ The decline path is a deliberate user choice, not a failure — exit `0`. **Do N
 One invocation does all of it, in one process:
 
 ```bash
-bash "<plugin-root>/lib/ship.sh" "$BATCH_PATH"
+# Carried forward: BATCH_PATH
+: "${BATCH_PATH:?stride-ideation: BATCH_PATH was not carried forward from Step 8d}"
+# Find the helpers: the project install, then the global install, then a stride-opencode-ideation checkout.
+STI_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f "$STI_ROOT/.opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/.opencode/stride-ideation/lib"
+elif [ -f "${HOME:-}/.config/opencode/stride-ideation/lib/filename.sh" ]; then STI_LIB="$HOME/.config/opencode/stride-ideation/lib"
+elif [ -f "$STI_ROOT/commands/stridify.md" ] && [ -f "$STI_ROOT/commands/ideate.md" ] && [ -f "$STI_ROOT/install.sh" ] && [ -f "$STI_ROOT/AGENTS.md" ] && [ -d "$STI_ROOT/skills" ] && [ -f "$STI_ROOT/lib/filename.sh" ]; then STI_LIB="$STI_ROOT/lib"
+else echo "stride-ideation: cannot find the stride-ideation helpers in .opencode/stride-ideation/lib, ~/.config/opencode/stride-ideation/lib or a stride-opencode-ideation checkout — run install.sh, then retry this step" >&2; exit 1; fi
+bash "$STI_LIB/ship.sh" "$BATCH_PATH"
 ```
 
-Pass the batch path explicitly (each bash call is a fresh shell, so `BATCH_PATH` from Step 8 is a value you carry forward, not a variable that still exists). Run it once and relay its output. **Exit 0 means the batch exists in Stride — never re-run it or hand-curl the batch after an exit 0**, even when the success table is missing (see the 9c table). Exit 1 means nothing was created by this call, or Stride rejected it; the user fixes the cause and re-invokes. Exit 2 is a usage error (nothing was sent). Exit 129, 130 or 143 means the script was interrupted (`HUP`, `INT`, `TERM`) — if that happened while the POST was in flight the batch **may already exist**, so do not re-run: tell the user to check the Stride workspace's Backlog column first. The script's stdout and stderr never contain the token — it turns off a caller's `xtrace` and `allexport`, and scrubs the token and any `Bearer <value>` from every body or curl message it prints — so relaying its output verbatim is safe.
+Carry `BATCH_PATH` from Step 8d (each bash call is a fresh shell, so it is a value you carry forward, not a variable that still exists). Run it once and relay its output. **Exit 0 means the batch exists in Stride — never re-run it or hand-curl the batch after an exit 0**, even when the success table is missing (see the 9c table). Exit 1 means nothing was created by this call, or Stride rejected it; the user fixes the cause and re-invokes. Exit 2 is a usage error (nothing was sent). Exit 129, 130 or 143 means the script was interrupted (`HUP`, `INT`, `TERM`) — if that happened while the POST was in flight the batch **may already exist**, so do not re-run: tell the user to check the Stride workspace's Backlog column first. The script's stdout and stderr never contain the token — it turns off a caller's `xtrace` and `allexport`, and scrubs the token and any `Bearer <value>` from every body or curl message it prints — so relaying its output verbatim is safe.
 
 What the script does, in order (documented here so the behavior is reviewable without reading the script):
 

@@ -107,7 +107,7 @@ function Step-75SavePromptAndExit {
         'Paste the prompt block above into a fresh Claude session — any model capable'
         'of following the requirements-decomposer contract works. The session does'
         "NOT need codebase access. Save the resulting fenced JSON as $TargetBatchPath."
-        'Then run python3 <plugin-root>/lib/validate_batch.py on that path, and follow'
+        'Then run python3 <STI_LIB>/validate_batch.py on that path, and follow'
         'Step 9 of commands/stridify.md manually.'
         ''
         'This sibling file contains NO authentication material — the decomposer'

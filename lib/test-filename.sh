@@ -143,6 +143,31 @@ else
   printf 'FAIL  slug_from_path: malformed path leaked output: %s\n' "$BAD_OUT"
 fi
 
+# --- goal_fields -----------------------------------------------------------
+
+TAB="$(printf '\t')"
+assert_eq "goal_fields: splits a resolved seam into index, name and slug" \
+  "$(sti_goal_fields "2${TAB}Kanban app${TAB}kanban-app")" \
+  "$(printf 'GOAL_INDEX=2\nGOAL_NAME=Kanban app\nGOAL_SLUG=kanban-app')"
+assert_eq "goal_fields: a name with spaces, dashes and an equals sign is kept whole" \
+  "$(sti_goal_fields "10${TAB}A - B = C${TAB}a-b-c" | sed -n 2p)" \
+  "GOAL_NAME=A - B = C"
+for bad in "" "2" "2${TAB}name" "x${TAB}name${TAB}slug" "2${TAB}${TAB}slug" "2${TAB}name${TAB}" "2${TAB}a${TAB}b${TAB}c"; do
+  if BAD_OUT="$(sti_goal_fields "$bad" 2>/dev/null)"; then
+    FAIL=$(( FAIL + 1 )); printf 'FAIL  goal_fields: accepted a malformed tuple: [%s]\n' "$bad"
+  elif [ -n "$BAD_OUT" ]; then
+    FAIL=$(( FAIL + 1 )); printf 'FAIL  goal_fields: malformed tuple leaked output: %s\n' "$BAD_OUT"
+  else
+    PASS=$(( PASS + 1 )); printf 'PASS  goal_fields: rejects a malformed tuple with no stdout\n'
+  fi
+done
+DOC="$(mktemp)"
+printf '# T\n\n## Decomposition seams\n\n1. **Kanban app** \xe2\x80\x94 owns it\n2. **stride plugin** \xe2\x80\x94 adapter\n' > "$DOC"
+assert_eq "goal_fields: chains from sti_resolve_goal by name" \
+  "$(sti_goal_fields "$(sti_resolve_goal "$DOC" "stride plugin")" | tr '\n' '|')" \
+  "GOAL_INDEX=2|GOAL_NAME=stride plugin|GOAL_SLUG=stride-plugin|"
+rm -f "$DOC"
+
 # --- summary ---------------------------------------------------------------
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

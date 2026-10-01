@@ -84,12 +84,14 @@ if ((Classify-Result '') -ceq 'terminal') { Pass "empty result -> terminal" } el
 # Stage 10: backoff schedule sanity — 3 attempts total, sleep 30s then 90s.
 # The bash test checks the documented schedule strings against the body of
 # the stridify command. For the .ps1 mirror we confirm the schedule
-# values are present in the skill body file via grep.
-$skillBody = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '../skills/stride-ideation-stridify/SKILL.md') -ErrorAction SilentlyContinue
-if ($skillBody -and $skillBody -match 'sleep 30' -and $skillBody -match 'sleep 90' -and $skillBody -match 'MAX_ATTEMPTS=3') {
-    Pass "skill body documents 3-attempt retry with 30s/90s backoff"
+# values are present in commands/stridify.md (the retry loop lives in its
+# Step 7c; there is no separate stridify skill file).
+$commandPath = Join-Path (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)) (Join-Path 'commands' 'stridify.md')
+$commandBody = Get-Content -Raw -LiteralPath $commandPath -ErrorAction SilentlyContinue
+if ($commandBody -and $commandBody -match 'sleep 30' -and $commandBody -match 'sleep 90' -and $commandBody -match 'MAX_ATTEMPTS=3') {
+    Pass "stridify.md documents 3-attempt retry with 30s/90s backoff"
 } else {
-    Fail "skill body retry-schedule sentinels missing or skill file not found"
+    Fail "stridify.md retry-schedule sentinels missing or command file not found" $commandPath
 }
 
 Write-Host ''
